@@ -20,4 +20,6 @@ void fwd(
     double lower_bound,
     std::optional<torch::stable::Tensor> initial_state = std::nullopt,
     std::optional<torch::stable::Tensor> final_state = std::nullopt,
-    std::optional<torch::stable::Tensor> cu_seqlens = std::nullopt);
+    std::optional<torch::stable::Tensor> cu_seqlens = std::nullopt,
+    bool use_vsplit = false,
+    bool use_vsplit_cluster = false);

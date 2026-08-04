@@ -42,8 +42,11 @@ void fwd(
     double lower_bound,
     std::optional<Tensor> initial_state,
     std::optional<Tensor> final_state,
-    std::optional<Tensor> cu_seqlens
+    std::optional<Tensor> cu_seqlens,
+    bool use_vsplit,
+    bool use_vsplit_cluster
 ) {
+    use_vsplit = use_vsplit || use_vsplit_cluster;
     STD_TORCH_CHECK(q.is_cuda() && k.is_cuda() && v.is_cuda() && g.is_cuda() && beta.is_cuda() && out.is_cuda() && workspace.is_cuda(),
                     "all tensors must be on CUDA");
     STD_TORCH_CHECK(q.is_contiguous() && k.is_contiguous() && v.is_contiguous() && g.is_contiguous() && out.is_contiguous() && workspace.is_contiguous(),
@@ -191,7 +194,8 @@ void fwd(
                 initial_state_raw, scale_f, final_state_raw, out_ptr, \
                 workspace_ptr, total_tiles, \
                 int(T_total), int(H), int(N_val), typed_cu_seqlens, \
-                A_log_ptr, dt_bias_ptr, gate_scale, stream)
+                A_log_ptr, dt_bias_ptr, gate_scale, use_vsplit, \
+                use_vsplit_cluster, stream)
 
         #define DISPATCH_STATE(VL) \
             if (!has_state_in && !has_state_out) { \
