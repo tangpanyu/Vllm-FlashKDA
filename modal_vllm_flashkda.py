@@ -117,7 +117,7 @@ base_image = (
 runtime_image = (
     base_image
     .apt_install("build-essential", "ninja-build", "cmake", "rsync")
-    .pip_install("pytest")
+    .pip_install("pytest", "numpy")
     .env({"PYTHONPATH": f"{REMOTE_REPO}:/workspace"})
 )
 
@@ -241,8 +241,6 @@ def _print_environment() -> None:
 
 @app.function(
     image=install_image,
-    cpu=16,
-    memory=32768,
     timeout=1800,
     volumes={REMOTE_REPO: build_volume},
 )
