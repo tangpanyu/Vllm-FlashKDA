@@ -397,6 +397,12 @@ def _select_cases(pool: Iterable[Case], names: list[str]) -> list[Case]:
     return [by_name[name] for name in names]
 
 
+def _print_case_legend() -> None:
+    print("Case names:")
+    print("  pure_nN_tT_hH  = N equal-length sequences, T tokens each, H local heads")
+    print("  mixed_dD_pP_hH = D one-token decodes plus one P-token prefill, H local heads")
+
+
 def run_cases(
     cases: list[Case],
     warmup: int,
@@ -408,11 +414,19 @@ def run_cases(
     print("FP32 state in/out: True")
     cache_mode = "steady" if l2_scrub_mib == 0 else f"cold ({l2_scrub_mib} MiB read)"
     print(f"Cache mode: {cache_mode}")
-    print(
-        "case | original_ms median[min,max] split_ms median[min,max] "
-        "cluster_ms median[min,max] "
-        "split_speedup cluster_speedup exact"
+    _print_case_legend()
+    print("Latency columns are medians in milliseconds.")
+    print("Speedup = original latency / variant latency; values above 1 are faster.")
+    print("Exact = split and cluster output/state are bitwise equal to original.")
+
+    case_width = max(20, *(len(case.name) for case in cases))
+    header = (
+        f"{'case':<{case_width}}  {'original':>9}  {'split':>9}  "
+        f"{'cluster':>9}  {'split speedup':>13}  "
+        f"{'cluster speedup':>15}  {'exact':>5}"
     )
+    print(header)
+    print("-" * len(header))
 
     for index, case in enumerate(cases):
         inputs = make_inputs(case, seed=42 + index)
@@ -428,15 +442,10 @@ def run_cases(
         original = timings["original"][0]
         split = timings["split"][0]
         cluster = timings["cluster"][0]
-        original_min, original_max = timings["original"][1:]
-        split_min, split_max = timings["split"][1:]
-        cluster_min, cluster_max = timings["cluster"][1:]
         print(
-            f"{case.name} | "
-            f"{original:.5f}[{original_min:.5f},{original_max:.5f}] "
-            f"{split:.5f}[{split_min:.5f},{split_max:.5f}] "
-            f"{cluster:.5f}[{cluster_min:.5f},{cluster_max:.5f}] "
-            f"{original / split:.3f}x {original / cluster:.3f}x yes"
+            f"{case.name:<{case_width}}  {original:>9.5f}  {split:>9.5f}  "
+            f"{cluster:>9.5f}  {original / split:>12.3f}x  "
+            f"{original / cluster:>14.3f}x  {'yes':>5}"
         )
 
         del graphs, scrub_owners, inputs
@@ -457,7 +466,12 @@ def run_upstream_baseline_cases(
     print("FP32 state in/out: True")
     cache_mode = "steady" if l2_scrub_mib == 0 else f"cold ({l2_scrub_mib} MiB read)"
     print(f"Cache mode: {cache_mode}")
-    print("case | upstream_original_ms median[min,max]")
+    _print_case_legend()
+    print("Latency is the median in milliseconds.")
+    case_width = max(20, *(len(case.name) for case in cases))
+    header = f"{'case':<{case_width}}  {'upstream original':>17}"
+    print(header)
+    print("-" * len(header))
 
     for index, case in enumerate(cases):
         inputs = make_inputs(case, seed=42 + index)
@@ -478,8 +492,8 @@ def run_upstream_baseline_cases(
             l2_scrub_mib=l2_scrub_mib,
             variants=("original",),
         )
-        median, minimum, maximum = timings["original"]
-        print(f"{case.name} | {median:.5f}[{minimum:.5f},{maximum:.5f}]")
+        median = timings["original"][0]
+        print(f"{case.name:<{case_width}}  {median:>17.5f}")
 
         del graphs, scrub_owners, inputs
         gc.collect()
