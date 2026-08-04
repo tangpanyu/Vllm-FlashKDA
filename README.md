@@ -67,6 +67,9 @@ Once installed, FlashKDA is auto-dispatched from `flash-linear-attention`'s `chu
 
 See [BENCHMARK_H20.md](BENCHMARK_H20.md).
 
+The experimental K2 V-split and CTA-cluster paths, including B300 validation
+commands, are documented in [docs/vsplit-cluster.md](docs/vsplit-cluster.md).
+
 ## Tests
 
 ```bash
@@ -74,6 +77,7 @@ bash tests/test.sh
 ```
 
 - `tests/test_fwd.py` — correctness tests (exact match against the torch reference; compared with `flash-linear-attention`)
+- `tests/test_vsplit.py` — bitwise coverage for the experimental plain and clustered V-split K2 paths
 
 
 ## Kernel API
@@ -83,7 +87,8 @@ bash tests/test.sh
 ```python
 flash_kda.fwd(q, k, v, g, beta, scale, out, A_log, dt_bias, lower_bound,
               initial_state=None, final_state=None, cu_seqlens=None,
-              workspace=None)
+              workspace=None, use_vsplit=False,
+              use_vsplit_cluster=False)
 ```
 
 **Parameters:**
@@ -104,11 +109,14 @@ flash_kda.fwd(q, k, v, g, beta, scale, out, A_log, dt_bias, lower_bound,
 | `final_state` | bf16/fp32/None | `[B, H, V, K]` or `[N, H, V, K]` | (optional, output) Final recurrent state |
 | `cu_seqlens` | int32/int64 | `[N+1]` | (optional) Cumulative sequence lengths for variable-length batching |
 | `workspace` | uint8/None | `[workspace_size]` | (optional) Reusable workspace; allocated automatically when omitted |
+| `use_vsplit` | bool | scalar | (experimental) Split K2 into two `V=64` CTAs |
+| `use_vsplit_cluster` | bool | scalar | (experimental) Cluster the V-split CTAs and multicast common K2 inputs; implies `use_vsplit` |
 
 - Currently requires `K = V = 128`.
 - `initial_state` / `final_state` accept `None` (stateless), bf16, or fp32 tensors. When both are provided, their dtypes must match.
 - When `cu_seqlens` is provided, `B` must be 1, `T` is the total length across all sequences, and `initial_state` / `final_state` have shape `[N, H, V, K]`.
 - When `cu_seqlens` is `None`, each batch element is treated as an independent sequence, and the state shape is `[B, H, V, K]`.
+- Both V-split flags default to `False`; the existing K2 path remains the default.
 
 ## Development
 
