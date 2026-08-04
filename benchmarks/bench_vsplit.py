@@ -415,14 +415,15 @@ def run_cases(
     cache_mode = "steady" if l2_scrub_mib == 0 else f"cold ({l2_scrub_mib} MiB read)"
     print(f"Cache mode: {cache_mode}")
     _print_case_legend()
-    print("Latency columns are medians in milliseconds.")
+    print("Latency columns are medians in microseconds (us).")
+    print("Timing uses CUDA events; torch milliseconds are converted to us.")
     print("Speedup = original latency / variant latency; values above 1 are faster.")
     print("Exact = split and cluster output/state are bitwise equal to original.")
 
     case_width = max(20, *(len(case.name) for case in cases))
     header = (
-        f"{'case':<{case_width}}  {'original':>9}  {'split':>9}  "
-        f"{'cluster':>9}  {'split speedup':>13}  "
+        f"{'case':<{case_width}}  {'original us':>11}  {'split us':>11}  "
+        f"{'cluster us':>11}  {'split speedup':>13}  "
         f"{'cluster speedup':>15}  {'exact':>5}"
     )
     print(header)
@@ -443,8 +444,9 @@ def run_cases(
         split = timings["split"][0]
         cluster = timings["cluster"][0]
         print(
-            f"{case.name:<{case_width}}  {original:>9.5f}  {split:>9.5f}  "
-            f"{cluster:>9.5f}  {original / split:>12.3f}x  "
+            f"{case.name:<{case_width}}  {original * 1000:>11.2f}  "
+            f"{split * 1000:>11.2f}  {cluster * 1000:>11.2f}  "
+            f"{original / split:>12.3f}x  "
             f"{original / cluster:>14.3f}x  {'yes':>5}"
         )
 
@@ -467,9 +469,10 @@ def run_upstream_baseline_cases(
     cache_mode = "steady" if l2_scrub_mib == 0 else f"cold ({l2_scrub_mib} MiB read)"
     print(f"Cache mode: {cache_mode}")
     _print_case_legend()
-    print("Latency is the median in milliseconds.")
+    print("Latency is the median in microseconds (us).")
+    print("Timing uses CUDA events; torch milliseconds are converted to us.")
     case_width = max(20, *(len(case.name) for case in cases))
-    header = f"{'case':<{case_width}}  {'upstream original':>17}"
+    header = f"{'case':<{case_width}}  {'upstream original us':>20}"
     print(header)
     print("-" * len(header))
 
@@ -493,7 +496,7 @@ def run_upstream_baseline_cases(
             variants=("original",),
         )
         median = timings["original"][0]
-        print(f"{case.name:<{case_width}}  {median:>17.5f}")
+        print(f"{case.name:<{case_width}}  {median * 1000:>20.2f}")
 
         del graphs, scrub_owners, inputs
         gc.collect()
