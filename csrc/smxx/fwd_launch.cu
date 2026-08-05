@@ -208,13 +208,10 @@ void launch_fwd(
 #if BLOCK_LEVEL_K2 >= 0
     {
         constexpr int kK2Threads = 32 * 2 + 128;
-        constexpr int kVSplitK2Threads = kK2Threads;
-        // Clustered V-split uses four MMA warps plus one fused TMA load/store
-        // control warp. The reduced block size leaves more register headroom,
-        // but the three-stage kernel remains shared-memory-residency limited on
-        // Hopper. Plain V-split keeps separate IO warps because mixed
-        // decode/prefill workloads benefit from all six warps during FP32 state
-        // conversion.
+        // Ablation: both V-split paths use four MMA warps plus one fused TMA
+        // load/store control warp. This isolates cluster multicast and its
+        // synchronization from the block-size/CTA-residency change.
+        constexpr int kVSplitK2Threads = 32 + 128;
         constexpr int kVSplitClusterK2Threads = 32 + 128;
         dim3 block_k2(kK2Threads);
 
