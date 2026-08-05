@@ -529,9 +529,11 @@ def run_profile(case: Case, variant: str, launches: int, seed: int) -> None:
     print(f"GPU: {torch.cuda.get_device_name()}")
     print(f"profile case={case.name} variants={','.join(variants)} launches={launches}")
     for current in variants:
+        print(f"launching variant={current}", flush=True)
         for _ in range(launches):
             run_variant(inputs, current)
-    torch.cuda.synchronize()
+        torch.cuda.synchronize()
+        print(f"completed variant={current}", flush=True)
 
 
 def parse_args() -> argparse.Namespace:

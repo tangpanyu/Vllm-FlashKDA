@@ -190,7 +190,9 @@ template <
     int VD = D,
     bool UseClusterMulticast = false
 >
-__global__ void __launch_bounds__(NumThreads, 2) _flash_kda_fwd_recurrence(
+__global__ __maxnreg__(
+    VD == 64 && NumThreads == 160 ? 128 : (VD == 64 ? 112 : 168))
+void _flash_kda_fwd_recurrence(
     CUTE_GRID_CONSTANT TmaLoadV const tma_load_v,
     CUTE_GRID_CONSTANT TmaLoadBeta const tma_load_beta,
     CUTE_GRID_CONSTANT TmaLoadState const tma_load_initial_state,
@@ -236,6 +238,10 @@ __global__ void __launch_bounds__(NumThreads, 2) _flash_kda_fwd_recurrence(
 
     constexpr int kWarpSize = 32;
     constexpr int kComputeThreads = 128;
+    constexpr bool kFusedIO = NumThreads == kComputeThreads + kWarpSize;
+    static_assert(
+        kFusedIO || NumThreads == kComputeThreads + 2 * kWarpSize,
+        "K2 requires four MMA warps and either one fused or two split IO warps");
     constexpr int kVSlices = D / VD;
     using LoadClusterShape = std::conditional_t<
         UseClusterMulticast,
@@ -257,13 +263,14 @@ __global__ void __launch_bounds__(NumThreads, 2) _flash_kda_fwd_recurrence(
     if (warp_id < kComputeThreads / kWarpSize) {
         warp_role = WarpRole::MMA;
     } else if (warp_id < kComputeThreads / kWarpSize + 1) {
-        warp_role = WarpRole::LOAD_QKG;
+        warp_role = kFusedIO ? WarpRole::LOAD_STORE : WarpRole::LOAD_QKG;
     } else if (warp_id < kComputeThreads / kWarpSize + 2) {
         warp_role = WarpRole::STORE;
     }
 
     if constexpr (HasStateIn) {
-        if (warp_role == WarpRole::LOAD_QKG && lane_predicate) {
+        if ((warp_role == WarpRole::LOAD_QKG ||
+             warp_role == WarpRole::LOAD_STORE) && lane_predicate) {
             shared_storage.state_acc_tma_barrier.init(1);
             cutlass::arch::fence_barrier_init();
         }
@@ -326,7 +333,8 @@ __global__ void __launch_bounds__(NumThreads, 2) _flash_kda_fwd_recurrence(
     // --- Load initial state
     if constexpr (HasStateIn && !StateFP32) {
         // BF16 state: TMA load directly into state_acc
-        if (warp_role == WarpRole::LOAD_QKG) {
+        if (warp_role == WarpRole::LOAD_QKG ||
+            warp_role == WarpRole::LOAD_STORE) {
             using BarrierType = cutlass::arch::ClusterTransactionBarrier::ValueType;
             constexpr uint32_t kStateTransactionBytes = cute::cosize_v<StateSmemLayout> * sizeof(BF16);
 
@@ -356,7 +364,8 @@ __global__ void __launch_bounds__(NumThreads, 2) _flash_kda_fwd_recurrence(
         using FP32StateSmemLayout = typename Layouts::FP32StateSmemLayout;
         using TMAFP32StateSmemLayout = typename Layouts::TMAFP32StateSmemLayout;
 
-        if (warp_role == WarpRole::LOAD_QKG) {
+        if (warp_role == WarpRole::LOAD_QKG ||
+            warp_role == WarpRole::LOAD_STORE) {
             using BarrierType = cutlass::arch::ClusterTransactionBarrier::ValueType;
             constexpr uint32_t kFP32StateTransactionBytes = cute::cosize_v<StateSmemLayout> * sizeof(float);
 
@@ -418,8 +427,9 @@ __global__ void __launch_bounds__(NumThreads, 2) _flash_kda_fwd_recurrence(
         cute::cluster_sync();
     }
 
-    // --- LOAD warp: issue TMA loads for v, beta, and workspace intermediates
-    if (warp_role == WarpRole::LOAD_QKG && lane_predicate) {
+    // --- LOAD or fused IO warp
+    if ((warp_role == WarpRole::LOAD_QKG ||
+         warp_role == WarpRole::LOAD_STORE) && lane_predicate) {
         Tensor g_v = tma_load_v.get_tma_tensor(make_shape(H, T_total, D));
         Tensor g_beta = tma_load_beta.get_tma_tensor(make_shape(H * T_total));
 
@@ -431,7 +441,7 @@ __global__ void __launch_bounds__(NumThreads, 2) _flash_kda_fwd_recurrence(
             cluster_rank = int(cute::block_rank_in_cluster());
         }
 
-        for (int t = 0; t < t_tiles; ++t) {
+        auto issue_input_tile = [&](int t) {
             load_pipeline.producer_acquire(load_write);
             using LoadBarrierType = typename LoadPipeline::ProducerBarrierType;
             LoadBarrierType* tma_barrier = load_pipeline.producer_get_barrier(load_write);
@@ -492,8 +502,80 @@ __global__ void __launch_bounds__(NumThreads, 2) _flash_kda_fwd_recurrence(
                 int32_t(CHUNK * CHUNK * sizeof(BF16)), cluster_rank);
 
             ++load_write;
+        };
+
+        if constexpr (kFusedIO) {
+            // Keep the input ring full, then let one elected IO lane bridge
+            // the input producer and output consumer pipelines. Waiting for
+            // O[t] also means the MMA warpgroup has finished input[t]; issue
+            // input[t + InputStages] before draining O[t] so the next global
+            // load overlaps the current TMA store.
+            int preload_tiles = min(t_tiles, InputStages);
+            for (int t = 0; t < preload_tiles; ++t) {
+                issue_input_tile(t);
+            }
+
+            Tensor g_out =
+                tma_store_out.get_tma_tensor(make_shape(H, T_total, D));
+            auto cta_tma_store = tma_store_out.get_slice(Int<0>{});
+            StorePipelineState out_read;
+
+            for (int t = 0; t < t_tiles; ++t) {
+                store_pipeline.consumer_wait(out_read);
+
+                int next_input = t + InputStages;
+                if (next_input < t_tiles) {
+                    issue_input_tile(next_input);
+                }
+
+                int stage = out_read.index();
+                int actual_len = min(CHUNK, seq_len - t * CHUNK);
+                BF16* out_stage_ptr =
+                    shared_storage.output[stage].out.begin();
+
+                if (actual_len < CHUNK) {
+                    Tensor s_out = make_tensor(
+                        make_smem_ptr(out_stage_ptr), VOLayout{});
+                    for (int row = 0; row < actual_len; ++row) {
+                        int64_t global_base =
+                            (bos + t * CHUNK + row) * H * D +
+                            head_idx * D + v_idx * VD;
+                        for (int col = 0; col < VD; ++col) {
+                            out_raw_ptr[global_base + col] = s_out(row, col);
+                        }
+                    }
+                } else {
+                    auto out_off = g_out.layout()(
+                        head_idx, int(bos) + t * CHUNK, v_idx * VD);
+                    Tensor g_out_tile = make_tensor(
+                        g_out.data() + out_off,
+                        make_layout(
+                            make_shape(Int<1>{}, Int<CHUNK>{}, Int<VD>{}),
+                            stride(g_out.layout())));
+                    Tensor s_out_tile = make_tensor(
+                        make_smem_ptr(out_stage_ptr), TMAVOLayout{});
+                    cute::copy(
+                        tma_store_out,
+                        cta_tma_store.partition_S(s_out_tile),
+                        cta_tma_store.partition_D(g_out_tile));
+                    tma_store_arrive();
+                }
+
+                tma_store_wait<0>();
+                store_pipeline.consumer_release(out_read);
+                ++out_read;
+            }
+
+            // Unlike the dedicated load warp, the fused IO warp must drain
+            // output first: producer_tail can wait for an input stage whose
+            // consumer is itself blocked on a full output stage.
+            load_pipeline.producer_tail(load_write);
+        } else {
+            for (int t = 0; t < t_tiles; ++t) {
+                issue_input_tile(t);
+            }
+            load_pipeline.producer_tail(load_write);
         }
-        load_pipeline.producer_tail(load_write);
     }
 
     // --- MMA warps
@@ -891,51 +973,62 @@ __global__ void __launch_bounds__(NumThreads, 2) _flash_kda_fwd_recurrence(
         }
     }
 
-    if (warp_role == WarpRole::STORE && lane_predicate) {
-        Tensor g_out = tma_store_out.get_tma_tensor(make_shape(H, T_total, D));
-        auto cta_tma_store = tma_store_out.get_slice(Int<0>{});
-        StorePipelineState out_read;
-        for (int t = 0; t < t_tiles; ++t) {
-            store_pipeline.consumer_wait(out_read);
-            int stage = out_read.index();
-            int actual_len = min(CHUNK, seq_len - t * CHUNK);
+    if constexpr (!kFusedIO) {
+        if (warp_role == WarpRole::STORE && lane_predicate) {
+            Tensor g_out =
+                tma_store_out.get_tma_tensor(make_shape(H, T_total, D));
+            auto cta_tma_store = tma_store_out.get_slice(Int<0>{});
+            StorePipelineState out_read;
+            for (int t = 0; t < t_tiles; ++t) {
+                store_pipeline.consumer_wait(out_read);
+                int stage = out_read.index();
+                int actual_len = min(CHUNK, seq_len - t * CHUNK);
 
-            BF16* out_stage_ptr = shared_storage.output[stage].out.begin();
+                BF16* out_stage_ptr =
+                    shared_storage.output[stage].out.begin();
 
-            if (actual_len < CHUNK) {
-                // Manual store for tail tile to avoid overwriting next sequence
-                // Only one thread runs here, so loop over this V slice.
-                Tensor s_out = make_tensor(make_smem_ptr(out_stage_ptr), VOLayout{});
-                for (int row = 0; row < actual_len; ++row) {
-                    int64_t global_base =
-                        (bos + t * CHUNK + row) * H * D + head_idx * D +
-                        v_idx * VD;
-                    for (int col = 0; col < VD; ++col) {
-                        out_raw_ptr[global_base + col] = s_out(row, col);
+                if (actual_len < CHUNK) {
+                    // Manual store for tail tile to avoid overwriting next
+                    // sequence. Only one thread runs here.
+                    Tensor s_out = make_tensor(
+                        make_smem_ptr(out_stage_ptr), VOLayout{});
+                    for (int row = 0; row < actual_len; ++row) {
+                        int64_t global_base =
+                            (bos + t * CHUNK + row) * H * D +
+                            head_idx * D + v_idx * VD;
+                        for (int col = 0; col < VD; ++col) {
+                            out_raw_ptr[global_base + col] = s_out(row, col);
+                        }
                     }
+                } else {
+                    // TMA store for full tiles
+                    auto out_off = g_out.layout()(
+                        head_idx, int(bos) + t * CHUNK, v_idx * VD);
+                    Tensor g_out_tile = make_tensor(
+                        g_out.data() + out_off,
+                        make_layout(
+                            make_shape(
+                                Int<1>{}, Int<CHUNK>{}, Int<VD>{}),
+                            stride(g_out.layout())));
+                    Tensor s_out_tile = make_tensor(
+                        make_smem_ptr(out_stage_ptr), TMAVOLayout{});
+                    cute::copy(
+                        tma_store_out,
+                        cta_tma_store.partition_S(s_out_tile),
+                        cta_tma_store.partition_D(g_out_tile));
+                    tma_store_arrive();
                 }
-            } else {
-                // TMA store for full tiles
-                auto out_off = g_out.layout()(
-                    head_idx, int(bos) + t * CHUNK, v_idx * VD);
-                Tensor g_out_tile = make_tensor(g_out.data() + out_off,
-                    make_layout(make_shape(Int<1>{}, Int<CHUNK>{}, Int<VD>{}),
-                                stride(g_out.layout())));
-                Tensor s_out_tile = make_tensor(make_smem_ptr(out_stage_ptr), TMAVOLayout{});
-                cute::copy(
-                    tma_store_out,
-                    cta_tma_store.partition_S(s_out_tile),
-                    cta_tma_store.partition_D(g_out_tile)
-                );
-                tma_store_arrive();
+
+                tma_store_wait<0>();
+                store_pipeline.consumer_release(out_read);
+                ++out_read;
             }
-
-            tma_store_wait<0>();
-            store_pipeline.consumer_release(out_read);
-            ++out_read;
         }
+    }
 
-        if constexpr (HasStateOut && !StateFP32) {
+    if constexpr (HasStateOut && !StateFP32) {
+        if ((warp_role == WarpRole::STORE ||
+             warp_role == WarpRole::LOAD_STORE) && lane_predicate) {
             // BF16 state: TMA store directly from state_acc
             Tensor g_final = tma_store_final_state.get_tma_tensor(make_shape(N * H, D, D));
             auto state_off = g_final.layout()(
@@ -971,7 +1064,8 @@ __global__ void __launch_bounds__(NumThreads, 2) _flash_kda_fwd_recurrence(
         cutlass::arch::fence_view_async_shared();
         __syncthreads();  // conversion complete
 
-        if (warp_role == WarpRole::STORE && lane_predicate) {
+        if ((warp_role == WarpRole::STORE ||
+             warp_role == WarpRole::LOAD_STORE) && lane_predicate) {
             Tensor g_final = tma_store_final_state.get_tma_tensor(make_shape(N * H, D, D));
             auto state_off = g_final.layout()(
                 seq_idx * H + head_idx, v_idx * VD, 0);

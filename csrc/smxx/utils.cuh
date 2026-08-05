@@ -79,6 +79,7 @@ struct WorkspaceSizes {
 enum class WarpRole {
     MMA,
     LOAD_QKG,
+    LOAD_STORE,
     STORE,
     NonParticipant,
 };
@@ -98,7 +99,8 @@ cutlass::PipelineTmaAsync<Stages> make_load_pipeline(
 
     auto role = Pipeline::ThreadCategory::NonParticipant;
     bool is_leader = false;
-    if (warp_role == WarpRole::LOAD_QKG) {
+    if (warp_role == WarpRole::LOAD_QKG ||
+        warp_role == WarpRole::LOAD_STORE) {
         role = Pipeline::ThreadCategory::Producer;
         is_leader = cute::elect_one_sync();
     } else if (warp_role == WarpRole::MMA) {
@@ -129,7 +131,8 @@ cutlass::PipelineAsync<Stages> make_store_pipeline(
     auto role = Pipeline::ThreadCategory::NonParticipant;
     if (warp_role == WarpRole::MMA) {
         role = Pipeline::ThreadCategory::Producer;
-    } else if (warp_role == WarpRole::STORE) {
+    } else if (warp_role == WarpRole::STORE ||
+               warp_role == WarpRole::LOAD_STORE) {
         role = Pipeline::ThreadCategory::Consumer;
     }
 

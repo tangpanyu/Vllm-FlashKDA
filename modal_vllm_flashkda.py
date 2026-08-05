@@ -1,4 +1,4 @@
-"""Build and validate the vLLM FlashKDA V-split work on Modal B300.
+"""Build and validate the vLLM FlashKDA V-split work on Modal GPUs.
 
 The CUDA extension is compiled explicitly by a CPU-only function and stored in
 an isolated persistent Volume.  Test and benchmark functions only consume that
@@ -6,17 +6,22 @@ Volume, so invoking them can never trigger NVCC implicitly.
 
 Commands:
 
-    # Upload changed build inputs and compile sm_103a in a CPU container.
+    # Upload changed build inputs and compile all supported CUDA architectures
+    # (sm_90a, sm_100a, sm_103a, and sm_120a) in a CPU container.
     modal run modal_vllm_flashkda.py --action install
 
-    # Run the focused V-split/cluster correctness tests on one B300.
+    # Run the focused V-split/cluster correctness tests on the selected GPU.
     modal run modal_vllm_flashkda.py --action test
 
     # Also run the repository's complete forward correctness matrix.
     modal run modal_vllm_flashkda.py --action test --full
 
-    # Run the PR #4 workload suite on one B300.
+    # Run the PR #4 workload suite on the selected GPU.
     modal run modal_vllm_flashkda.py --action bench
+
+    # Reuse the same all-architecture build on B300 without reinstalling.
+    VLLM_FLASHKDA_GPU=B300 \
+      modal run modal_vllm_flashkda.py --action bench
 
     # Eagerly bisect and localize the long-sequence cluster exactness issue.
     modal run modal_vllm_flashkda.py --action debug \
@@ -76,19 +81,19 @@ REMOTE_BENCHMARKS = "/workspace/benchmarks"
 REMOTE_REPORTS = "/workspace/reports"
 
 APP_NAME = "vllm-flashkda"
-GPU_MODEL = "B300"
+GPU_MODEL = os.environ.get("VLLM_FLASHKDA_GPU", "H100!")
 BUILD_VOLUME = os.environ.get(
     "VLLM_FLASHKDA_BUILD_VOLUME", "vllm-flashkda-build"
 )
 REPORT_VOLUME = "vllm-flashkda-reports"
 
 CUDA_HOME = "/usr/local/cuda-13.2"
-CUDA_ARCH = "103a"
+CUDA_ARCHS = "all"
 PYTHON_VERSION = "3.12"
 PYTORCH_VERSION = "2.13.0+cu132"
 BUILD_FINGERPRINT = (
     f"python={PYTHON_VERSION};torch={PYTORCH_VERSION};"
-    f"cuda_home={CUDA_HOME};arch={CUDA_ARCH}"
+    f"cuda_home={CUDA_HOME};archs={CUDA_ARCHS}"
 )
 
 app = modal.App(name=APP_NAME)
@@ -241,14 +246,16 @@ def _print_environment() -> None:
 
 @app.function(
     image=install_image,
-    timeout=1800,
+    cpu=16.0,
+    memory=32768,
+    timeout=7200,
     volumes={REMOTE_REPO: build_volume},
 )
 def install(
     force_rebuild: bool = False,
     require_vsplit_schema: bool = True,
 ) -> None:
-    """Synchronize changed build inputs and compile sm_103a without a GPU."""
+    """Synchronize build inputs and compile every supported arch without a GPU."""
     import os
     import pathlib
     import shutil
@@ -298,7 +305,7 @@ def install(
         env.update(
             {
                 "CUDA_HOME": CUDA_HOME,
-                "FLASH_KDA_CUDA_ARCHS": CUDA_ARCH,
+                "FLASH_KDA_CUDA_ARCHS": CUDA_ARCHS,
                 "NVCC_THREADS": "16",
                 "MAX_JOBS": "16",
             }
@@ -338,7 +345,7 @@ def install(
         # its stable operator schema has been checked in this CPU container.
         marker.write_text(source_hash + "\n")
         build_volume.commit()
-        print("FlashKDA sm_103a build committed to the persistent Volume")
+        print("FlashKDA all-architecture build committed to the persistent Volume")
 
     print(f"PyTorch: {torch.__version__}, torch CUDA: {torch.version.cuda}")
     print(f"CUDA device visible during install: {torch.cuda.is_available()}")
@@ -451,6 +458,8 @@ def bench(
     iterations: int,
     repeats: int,
     l2_scrub_mib: int,
+    profile_variant: str,
+    profile_launches: int,
 ) -> None:
     """Run a paired original/split/cluster full-forward comparison."""
     import sys
@@ -471,6 +480,15 @@ def bench(
         "--l2-scrub-mib",
         str(l2_scrub_mib),
     ]
+    if mode == "profile":
+        command.extend(
+            [
+                "--profile-variant",
+                profile_variant,
+                "--profile-launches",
+                str(profile_launches),
+            ]
+        )
     for case in (item.strip() for item in cases.split(";")):
         if case:
             command.extend(["--case", case])
@@ -533,6 +551,8 @@ def main(
     iterations: int = 200,
     repeats: int = 6,
     l2_scrub_mib: int = 256,
+    profile_variant: str = "all",
+    profile_launches: int = 1,
     full: bool = False,
     force_rebuild: bool = False,
     debug_min_t: int = 16,
@@ -558,6 +578,8 @@ def main(
             iterations,
             repeats,
             l2_scrub_mib,
+            profile_variant,
+            profile_launches,
         )
     elif action == "debug":
         check_install.remote(_source_hash(SOURCE_ROOT))

@@ -2,6 +2,8 @@
 
 本文说明实验性的 K2 V-split 和 CTA cluster 路径，包括它们与 upstream/dev、PR #4 的关系，数据与同步如何组织，以及如何在 B300 上验证是否值得启用。
 
+围绕 `VD=64` resident state 转置、寄存器生命周期和 spill 所做但最终未采用的优化，记录在 [K2 V-split state 转置与寄存器压力实验](vsplit-state-transpose-experiments.md) 中。
+
 ## 设计基线
 
 这项改动直接泛化 upstream/dev 中已经合入 PR #4 的 K2，而不是复制旧版 kernel 再单独维护一个 `fwd_kernel2_1.cuh`。
@@ -10,7 +12,7 @@
 
 - K1 将 shared-memory 中已经 swizzle 的物理字节图直接写入 workspace；K2 用 raw bulk copy 将相同字节图恢复到相同 shared-memory layout。
 - recurrent state 在整个 chunk 循环中常驻寄存器，只在入口加载一次，并在需要 `final_state` 时于末尾写回。
-- 保留 PR #4 调整过的 MMA 发射顺序、`PREFETCH=1`、late output acquire、varlen 反向调度和 `__launch_bounds__(..., 2)`。
+- 保留 PR #4 调整过的 MMA 发射顺序、`PREFETCH=1`、late output acquire 和 varlen 反向调度；V-split specialization 使用显式寄存器上限控制资源占用。
 - 原始 `VD=128` specialization 仍是默认路径；V-split 是同一个 kernel 模板的 `VD=64` specialization。
 
 这里的 raw-byte workspace 是 K1/K2 之间的私有 ABI。`k_decayed`、`q_decayed`、`k_restored`、`g_total`、`INV` 和 `Mqk` 不能在 K2 中当作普通逻辑矩阵重新排布，否则会破坏 K1 已经生成的 swizzle 字节图。
@@ -102,6 +104,55 @@ cluster 同步需要满足以下约束：
 - kernel 退出前再次执行 cluster sync，避免一个 CTA退出后，另一个 CTA仍可能访问它的 distributed shared memory 或远端 barrier。
 
 output pipeline 不跨 CTA。每个 V-slice 独立写出，不需要两个 CTA 合并 accumulator。
+
+### Cluster 的五 warp fused-IO 路径
+
+plain V-split 保留六个 warp：四个 MMA warp、一个 input TMA producer warp 和一个 output TMA consumer warp。cluster V-split 改用五个 warp：四个 MMA warp不变，最后一个 warp同时承担 input producer 和 output consumer。该 warp 只有 elected lane 发射 TMA，所以合并的目的不是增加数据搬运线程，而是去掉一个只做控制的 warp，并把 cluster specialization 的寄存器上限从 112 放宽到 128。
+
+fused-IO warp 先预取 `InputStages` 个 input tile，然后对每个 chunk 执行：
+
+```text
+等待 O[t] ready
+发射 input[t + InputStages]
+发射 O[t] 的 TMA store
+释放 output stage
+```
+
+等待 `O[t]` ready 已经意味着 MMA warpgroup 消费完 `input[t]`，因此此时可以安全复用相应 input stage。下一块 input 在当前 output 写回之前发射，使两条异步搬运有重叠机会。
+
+`load_pipeline.producer_tail()` 必须放在所有 output stage 排空之后。若 fused warp像独立 load warp 一样先执行 producer tail，它可能等待某个 input empty barrier；与此同时 MMA warp又可能因 output ring 已满而等待 fused warp写回，形成由同一个 warp负责解除的循环等待。
+
+没有把五 warp 路径用于 plain split。全量 H100 实验中，plain split 改为五 warp 后，在 mixed decode/prefill、`H=96` 的三组 case 上平均退化约 13.1%，其中前两组退化约 16.5%。FP32 state 的 shared-memory 转换会把 8×8 atom 分摊给 CTA 内全部线程，192 减到 160 线程会增加每个 warp承担的转换工作；短 decode CTA 对这个固定成本尤其敏感。cluster 路径没有出现这组退化，因此最终只对 cluster 启用 fused IO。
+
+H100 `VD=64` cluster 关键 specialization 编译为 118 registers/thread、0 spill；shared memory 仍约为 68 KiB，未因合并 IO warp 增加。旧六 warp NCU 报告显示实际 shared-memory config 为 167.936 KiB/SM，每个 3-stage CTA 的 allocated shared memory 为 69.632 KiB，因此 shared memory 将该配置限制为 2 CTA/SM；减少一个 warp本身没有提高 resident CTA 数。相对六 warp cluster 基线，按每次 run 内 `original / cluster` speedup 归一化后，12 个 workload 的平均变化约为 +2.8%。提升集中在 CTA 数足够多的纯 prefill：`pure_n2_t4096_h96` 为 +22.8%，`pure_n4_t2048_h96` 为 +6.1%；其余 workload 大多在约 -0.6% 到 +2.8% 之间。最终 12 组 output 和 final state 均与 original bitwise exact。
+
+还单独测试了把 V-split input pipeline 从 3 stage 降到 2 stage。2-stage cluster 仍编译为 118 registers/thread、0 spill；由 layout 大小可得 dynamic shared memory 从 68.608 KiB 降到约 52.608 KiB，加上旧 NCU 中每 CTA 的 1.024 KiB driver allocation 后，167.936 KiB config 在资源上允许 3 CTA/SM。寄存器按 120 registers/thread 的分配粒度计算，三个 160-thread CTA需要 57,600 registers，也能放入 H100 的 65,536 registers/SM。因此该实验很可能发生的是 `2 -> 3 CTA/SM`，此前用设备物理 shared-memory 上限推导成 `3 -> 4` 是错误的；还需要用 2-stage NCU 的 launch metrics确认实际 residency。
+
+尽管潜在 occupancy 提升，五 warp 2-stage 在 12 个 workload 中全部退化，归一化平均下降约 2.5%；plain split 平均下降约 6.2%，部分 specialization 还产生了新的 spill。这里不能简单归因于 stage 减少：当前 fused-IO warp 在每轮发射一个新 input 后执行 `tma_store_wait<0>()`，等待当前 O 的 TMA store完成才能进入下一轮。六 warp版本的独立 load warp不受 store warp这段等待影响，可以在 input stage释放后立即继续 refill。合并 warp因此在 input refill 与前一块 output store之间新增了串行边；3-stage 有更多缓冲，2-stage 更容易暴露。最终暂时恢复 3 input stages，但要判断降低 stage 本身是否有利，必须补做“2-stage + 六 warp cluster”对照，不能把本次五 warp结果当成纯 stage 实验。
+
+最终 H100 测量命令：
+
+```bash
+VLLM_FLASHKDA_GPU='H100!' modal run modal_vllm_flashkda.py \
+  --action bench --mode cases \
+  --warmup 30 --iterations 200 --repeats 6 \
+  --l2-scrub-mib 256
+```
+
+对应 Modal run：`ap-Uxb5oUy8OGG3G4L0kRouoz`。
+
+### 同步错误、偶发 hang 与确定性死锁
+
+这里需要区分数据竞态和真正的 barrier 死锁。早期 cluster 实现缺少部分同步时，代码不是每次都会死锁，而是进入未定义行为：可能得到错误结果、触发非法内存访问，也可能偶发 hang。当前实现中的同步分别保护以下四个生命周期：
+
+1. 第一笔 multicast 之前的 cluster sync 保证两个 CTA 都已经初始化本地 full/empty barrier。否则 rank 0 可能向 rank 1 尚未初始化的远端 barrier 完成 transaction。
+2. FP32 initial state 转换之后的 cluster sync 保证两个 CTA 都不再读取与 pipeline stages 共用 union 的 `state_fp32_buf`。否则 rank 0 的 multicast 可能覆盖 rank 1 尚在读取的 state scratch。这首先是数据竞态，不是必然死锁。
+3. 每个 chunk 的 128-thread `NamedBarrier` 保证四个 MMA warp 都完成当前 input stage 的 `ldmatrix`/MMA 后，代理线程才能执行 `consumer_release()`。缺少它会造成 stage 提前复用和数据竞态；通常表现为 mismatch，也可能进一步导致非法访问或 hang。
+4. kernel 退出前的 cluster sync 保证一个 CTA 不会在 peer 仍可能访问其 distributed shared memory 或远端 barrier 时结束生命周期。缺少它同样属于未定义行为，可能表现为间歇性 hang。
+
+真正可重复的 cluster 死锁通常来自同步协议不对称：两个 CTA 执行了不同次数或不同 phase 的 `cluster_sync()`、barrier arrive/wait、`producer_acquire()`、`consumer_release()` 或 `producer_tail()`。一侧等待的 arrival 永远不会由另一侧产生，因此无法推进。为避免这种情况，cluster rank 条件只能控制六条 workspace load 的实际发射，不能让两个 CTA 跳过不同的 collective、pipeline state advance 或 barrier 操作。当前两个 V-slice CTA 使用相同的 sequence、tile 和 chunk 数，保证同步控制流一致。
+
+这些同步也会产生性能成本。长序列下，启动、state 转换和退出处的 cluster sync 会被摊薄；每个 chunk 都执行的 128-thread `NamedBarrier` 则会随 chunk 数增长，通常更值得在 profile 中重点检查。不能仅为消除等待直接删除它，除非用另一套能够证明四个 MMA warp 已全部结束当前 stage 读取的正确协议替代。
 
 ## Stable API
 

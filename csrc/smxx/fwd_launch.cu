@@ -39,6 +39,7 @@ void launch_fwd(
 ) {
     using BF16 = cutlass::bfloat16_t;
     constexpr int kInputStages = 3;
+    constexpr int kVSplitInputStages = 3;
     constexpr int kOutputStages = 2;
     constexpr int CHUNK = 16;
     constexpr int VD = 64;
@@ -207,6 +208,14 @@ void launch_fwd(
 #if BLOCK_LEVEL_K2 >= 0
     {
         constexpr int kK2Threads = 32 * 2 + 128;
+        constexpr int kVSplitK2Threads = kK2Threads;
+        // Clustered V-split uses four MMA warps plus one fused TMA load/store
+        // control warp. The reduced block size leaves more register headroom,
+        // but the three-stage kernel remains shared-memory-residency limited on
+        // Hopper. Plain V-split keeps separate IO warps because mixed
+        // decode/prefill workloads benefit from all six warps during FP32 state
+        // conversion.
+        constexpr int kVSplitClusterK2Threads = 32 + 128;
         dim3 block_k2(kK2Threads);
 
         if (use_vsplit) {
@@ -221,9 +230,11 @@ void launch_fwd(
                 make_vsplit_state_tma();
 
             using SharedStorageK2T = SharedStorageK2<
-                K2VSplitL, kInputStages, kOutputStages>;
+                K2VSplitL, kVSplitInputStages, kOutputStages>;
             int smem_size_k2 = sizeof(SharedStorageK2T);
             dim3 grid_k2(H * (D / VD), N);
+            dim3 block_k2_vsplit(kVSplitK2Threads);
+            dim3 block_k2_vsplit_cluster(kVSplitClusterK2Threads);
 
             if (use_vsplit_cluster) {
                 auto kernel2 = _flash_kda_fwd_recurrence<
@@ -232,7 +243,8 @@ void launch_fwd(
                     decltype(tma_load_initial_state_vsplit),
                     decltype(tma_store_final_state_vsplit),
                     decltype(tma_store_out_vsplit),
-                    CHUNK, D, kInputStages, kOutputStages, kK2Threads,
+                    CHUNK, D, kVSplitInputStages, kOutputStages,
+                    kVSplitClusterK2Threads,
                     HasStateIn, HasStateOut, StateFP32, IsVarlen, SeqlenT,
                     VD, true>;
 
@@ -243,7 +255,8 @@ void launch_fwd(
                 void const* kernel_ptr =
                     reinterpret_cast<void const*>(kernel2);
                 cutlass::Status status = cutlass::launch_kernel_on_cluster(
-                    {grid_k2, block_k2, cluster_k2, smem_size_k2, stream},
+                    {grid_k2, block_k2_vsplit_cluster, cluster_k2, smem_size_k2,
+                     stream},
                     kernel_ptr,
                     tma_load_v_vsplit, tma_load_beta2,
                     tma_load_initial_state_vsplit,
@@ -262,14 +275,15 @@ void launch_fwd(
                     decltype(tma_load_initial_state_vsplit),
                     decltype(tma_store_final_state_vsplit),
                     decltype(tma_store_out_vsplit),
-                    CHUNK, D, kInputStages, kOutputStages, kK2Threads,
+                    CHUNK, D, kVSplitInputStages, kOutputStages,
+                    kVSplitK2Threads,
                     HasStateIn, HasStateOut, StateFP32, IsVarlen, SeqlenT,
                     VD, false>;
 
                 cudaFuncSetAttribute(
                     kernel2, cudaFuncAttributeMaxDynamicSharedMemorySize,
                     smem_size_k2);
-                kernel2<<<grid_k2, block_k2, smem_size_k2, stream>>>(
+                kernel2<<<grid_k2, block_k2_vsplit, smem_size_k2, stream>>>(
                     tma_load_v_vsplit, tma_load_beta2,
                     tma_load_initial_state_vsplit,
                     tma_store_final_state_vsplit,
