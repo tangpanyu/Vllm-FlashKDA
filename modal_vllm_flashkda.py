@@ -422,17 +422,24 @@ def test(full: bool = False) -> None:
     _run([sys.executable, "-m", "pytest", *targets, "-x", "-q", "-s"])
 
 
-def _benchmark_script() -> pathlib.Path:
+def _benchmark_script(suite: str) -> pathlib.Path:
+    if suite not in ("default", "large-batch"):
+        raise ValueError("benchmark suite must be 'default' or 'large-batch'")
+    filename = (
+        "bench_vsplit_large_batch.py"
+        if suite == "large-batch"
+        else "bench_vsplit.py"
+    )
     candidates = (
-        pathlib.Path(REMOTE_BENCHMARKS) / "bench_vsplit.py",
-        pathlib.Path(REMOTE_TESTS) / "bench_vsplit.py",
+        pathlib.Path(REMOTE_BENCHMARKS) / filename,
+        pathlib.Path(REMOTE_TESTS) / filename,
     )
     for candidate in candidates:
         if candidate.exists():
             return candidate
     raise RuntimeError(
-        "No V-split benchmark found; expected benchmarks/bench_vsplit.py "
-        "or tests/bench_vsplit.py"
+        f"No V-split benchmark found for suite {suite!r}; expected {filename} "
+        "under benchmarks/ or tests/"
     )
 
 
@@ -452,6 +459,7 @@ def _cluster_debug_script() -> pathlib.Path:
     volumes=B300_VOLUMES,
 )
 def bench(
+    suite: str,
     mode: str,
     cases: str,
     warmup: int,
@@ -465,12 +473,10 @@ def bench(
     import sys
 
     _print_environment()
-    script = _benchmark_script()
+    script = _benchmark_script(suite)
     command = [
         sys.executable,
         str(script),
-        "--mode",
-        mode,
         "--warmup",
         str(warmup),
         "--iterations",
@@ -480,7 +486,14 @@ def bench(
         "--l2-scrub-mib",
         str(l2_scrub_mib),
     ]
-    if mode == "profile":
+    if suite == "default":
+        command.extend(["--mode", mode])
+    elif mode != "cases" or cases:
+        raise ValueError(
+            "the large-batch suite runs its three fixed cases with "
+            "mode='cases' and no --cases filter"
+        )
+    if suite == "default" and mode == "profile":
         command.extend(
             [
                 "--profile-variant",
@@ -489,9 +502,10 @@ def bench(
                 str(profile_launches),
             ]
         )
-    for case in (item.strip() for item in cases.split(";")):
-        if case:
-            command.extend(["--case", case])
+    if suite == "default":
+        for case in (item.strip() for item in cases.split(";")):
+            if case:
+                command.extend(["--case", case])
 
     _run(command)
 
@@ -545,6 +559,7 @@ def debug_cluster(
 @app.local_entrypoint()
 def main(
     action: str = "bench",
+    suite: str = "default",
     mode: str = "cases",
     cases: str = "",
     warmup: int = 30,
@@ -572,6 +587,7 @@ def main(
     elif action == "bench":
         check_install.remote(_source_hash(SOURCE_ROOT))
         bench.remote(
+            suite,
             mode,
             cases,
             warmup,
