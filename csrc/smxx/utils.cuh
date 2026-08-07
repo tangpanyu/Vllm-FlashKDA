@@ -84,7 +84,11 @@ enum class WarpRole {
     NonParticipant,
 };
 
-template <int Stages, class ClusterShape = Shape<_1, _1>>
+template <
+    int Stages,
+    bool PerWarpClusterRelease = false,
+    class ClusterShape = Shape<_1, _1>
+>
 CUTLASS_DEVICE
 cutlass::PipelineTmaAsync<Stages> make_load_pipeline(
     typename cutlass::PipelineTmaAsync<Stages>::SharedStorage& storage,
@@ -113,8 +117,68 @@ cutlass::PipelineTmaAsync<Stages> make_load_pipeline(
     params.num_consumers = num_consumers;
     params.num_producers = num_producers;
 
-    Pipeline pipeline(storage, params, cluster_shape);
-    return pipeline;
+    if constexpr (PerWarpClusterRelease) {
+        // PipelineTmaAsync normally compresses a 128-thread consumer
+        // warpgroup to one empty-barrier arrival per source CTA.  K2 instead
+        // releases each of its four independent MMA warps separately, so each
+        // destination barrier must count one arrival per consumer warp from
+        // every CTA in the multicast row/column.
+        int warp_idx = cutlass::canonical_warp_idx_sync();
+        if (warp_idx == params.initializing_warp) {
+            uint32_t consumer_warps =
+                cute::ceil_div(
+                    num_consumers, uint32_t(cutlass::NumThreadsPerWarp));
+            uint32_t destination_arrivals =
+                uint32_t(cute::size<0>(cluster_shape) +
+                         cute::size<1>(cluster_shape) - 1) *
+                consumer_warps;
+            cutlass::arch::detail::initialize_barrier_array_pair_aligned<
+                decltype(storage.full_barrier_),
+                decltype(storage.empty_barrier_),
+                Stages>(
+                    storage.full_barrier_, storage.empty_barrier_,
+                    num_producers, destination_arrivals);
+        }
+        cutlass::arch::fence_barrier_init();
+
+        // The kernel supplies its own per-warp destination mask and release,
+        // so disable both the stock barrier initialization and the stock
+        // warpgroup-level signaling mask.
+        return Pipeline(
+            storage, params, cluster_shape,
+            cute::false_type{}, cute::false_type{});
+    } else {
+        return Pipeline(storage, params, cluster_shape);
+    }
+}
+
+template <int Stages, class ClusterShape>
+CUTLASS_DEVICE
+void cluster_consumer_release_per_warp(
+    typename cutlass::PipelineTmaAsync<Stages>::SharedStorage& storage,
+    cutlass::PipelineState<Stages> state,
+    ClusterShape cluster_shape
+) {
+    // One lane represents each MMA warp.  A warp may advance to the next
+    // already-full stage immediately; the producer can only recycle this
+    // stage after all consumer warps in both multicast CTAs have arrived.
+    __syncwarp();
+    if (cute::elect_one_sync()) {
+        auto block_layout = make_layout(cluster_shape);
+        dim3 local_block_id = cute::block_id_in_cluster();
+        CUTLASS_PRAGMA_UNROLL
+        for (int m = 0; m < cute::size<0>(block_layout); ++m) {
+            uint32_t dst_block_id =
+                block_layout(m, local_block_id.y);
+            storage.empty_barrier_[state.index()].arrive(dst_block_id);
+        }
+        CUTLASS_PRAGMA_UNROLL
+        for (int n = 1; n < cute::size<1>(block_layout); ++n) {
+            uint32_t dst_block_id =
+                block_layout(local_block_id.x, n);
+            storage.empty_barrier_[state.index()].arrive(dst_block_id);
+        }
+    }
 }
 
 template <int Stages>
