@@ -278,7 +278,8 @@ void _flash_kda_fwd_recurrence(
 
     using LoadPipelineState = cutlass::PipelineState<InputStages>;
     using LoadPipeline = cutlass::PipelineTmaAsync<InputStages>;
-    LoadPipeline load_pipeline = make_load_pipeline<InputStages>(
+    LoadPipeline load_pipeline =
+        make_load_pipeline<InputStages, UseClusterMulticast>(
         shared_storage.load_pipeline,
         kTmaTransactionBytes,
         warp_role, 1, kComputeThreads, LoadClusterShape{}
@@ -580,7 +581,6 @@ void _flash_kda_fwd_recurrence(
 
     // --- MMA warps
     if (warp_role == WarpRole::MMA) {
-        cutlass::arch::NamedBarrier compute_barrier(kComputeThreads, 0);
         LoadPipelineState load_read;
         StorePipelineState out_write = cutlass::make_producer_start_state<StorePipeline>();
         int compute_tid = threadIdx.x;
@@ -954,20 +954,18 @@ void _flash_kda_fwd_recurrence(
                 }
             }
             }
-            if constexpr (UseClusterMulticast) {
-                // A clustered PipelineTmaAsync represents each 128-thread
-                // consumer warpgroup with one proxy arrival per destination
-                // CTA.  These four mma.sync warps are otherwise independent,
-                // so the selected signaling thread could release the stage
-                // while a sibling warp is still reading it.  Join locally
-                // before publishing either proxy arrival.
-                compute_barrier.arrive_and_wait();
-            }
             // The collective commit releases this input stage and publishes
             // both the output tile and an optional final-state spill.
             cutlass::arch::fence_view_async_shared();
             store_pipeline.producer_commit(out_write);
-            load_pipeline.consumer_release(load_read);
+            if constexpr (UseClusterMulticast) {
+                cluster_consumer_release_per_warp<InputStages>(
+                    shared_storage.load_pipeline,
+                    load_read,
+                    LoadClusterShape{});
+            } else {
+                load_pipeline.consumer_release(load_read);
+            }
             ++load_read;
             ++out_write;
         }
