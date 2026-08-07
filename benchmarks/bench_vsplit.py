@@ -113,6 +113,12 @@ def _mixed_cases() -> list[Case]:
 
 DEFAULT_CASES = _pure_cases() + _mixed_cases()
 
+# Large, fully resident workload used only for NCU comparisons. Keeping it out
+# of DEFAULT_CASES avoids adding a multi-gigabyte allocation to normal runs.
+PROFILE_CASES = [
+    Case(name="pure_n16_t8192_h96", batch=16, seq_len=8192, heads=96),
+]
+
 SMOKE_CASES = [
     Case(name="smoke_fixed_tail", batch=2, seq_len=37, heads=1),
     Case(name="smoke_mixed_tail", heads=1, decode_count=3, prefill_len=61),
@@ -575,7 +581,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     if args.list_cases:
-        for case in DEFAULT_CASES:
+        for case in DEFAULT_CASES + PROFILE_CASES:
             print(case.name)
         return
 
@@ -601,7 +607,12 @@ def main() -> None:
         )
         return
 
-    cases = _select_cases(DEFAULT_CASES, args.case)
+    case_pool = (
+        DEFAULT_CASES + PROFILE_CASES
+        if args.mode == "profile"
+        else DEFAULT_CASES
+    )
+    cases = _select_cases(case_pool, args.case)
     if args.mode == "upstream-baseline":
         run_upstream_baseline_cases(
             cases,
