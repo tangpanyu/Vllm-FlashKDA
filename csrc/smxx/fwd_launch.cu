@@ -208,11 +208,11 @@ void launch_fwd(
 #if BLOCK_LEVEL_K2 >= 0
     {
         constexpr int kK2Threads = 32 * 2 + 128;
-        // Ablation: both V-split paths use four MMA warps plus one fused TMA
-        // load/store control warp. This isolates cluster multicast and its
-        // synchronization from the block-size/CTA-residency change.
-        constexpr int kVSplitK2Threads = 32 + 128;
-        constexpr int kVSplitClusterK2Threads = 32 + 128;
+        // Six-warp V-split comparison: keep independent load and store warps
+        // for both the plain and clustered paths.  The clustered path differs
+        // only in multicast and its per-warp input-stage release protocol.
+        constexpr int kVSplitK2Threads = 32 * 2 + 128;
+        constexpr int kVSplitClusterK2Threads = 32 * 2 + 128;
         dim3 block_k2(kK2Threads);
 
         if (use_vsplit) {

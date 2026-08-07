@@ -381,7 +381,11 @@ CUTLASS_DEVICE void neumann_inv_fused_1warp(
 // Both FP32 (K_SW32) and BF16 (K_INTER) layouts resolve to the same 8x8 atom
 // structure with Swizzle<0,0,3>. Conversion operates per-atom:
 //   - Each warp handles one 8x8 atom (64 elements)
-//   - Each thread converts 2 elements
+//   - Each thread converts one naturally aligned pair
+//   - The pair is transferred as float2/uint32_t instead of two scalar
+//     accesses. Both layouts map each logical pair to adjacent physical
+//     elements, so this reaches the ideal number of shared-memory wavefronts
+//     on both sides of the conversion.
 //   - Warp-level iteration over all atoms in the Rows x Cols state
 
 template <class FP32Layout, class BF16Layout, int Rows, int Cols, int NumThreads>
@@ -408,11 +412,14 @@ __device__ void smem_cvt_fp32_to_bf16(
         int br = (blk / kColBlocks) * kBlock;
         int bc = (blk % kColBlocks) * kBlock;
         int e0 = lane_id * 2;
-        int e1 = lane_id * 2 + 1;
         int r0 = br + e0 / kBlock, c0 = bc + e0 % kBlock;
-        int r1 = br + e1 / kBlock, c1 = bc + e1 % kBlock;
-        bf16_view(r0, c0) = BF16(fp32_view(r0, c0));
-        bf16_view(r1, c1) = BF16(fp32_view(r1, c1));
+
+        float2 fp32_pair = reinterpret_cast<float2 const&>(fp32_view(r0, c0));
+        BF16 bf16_0(fp32_pair.x);
+        BF16 bf16_1(fp32_pair.y);
+        uint32_t bf16_pair = uint32_t(bf16_0.raw()) |
+                             (uint32_t(bf16_1.raw()) << 16);
+        reinterpret_cast<uint32_t&>(bf16_view(r0, c0)) = bf16_pair;
     }
 }
 
@@ -422,6 +429,7 @@ __device__ void smem_cvt_bf16_to_fp32(
     float* __restrict__ fp32_smem,
     int tid
 ) {
+    using BF16 = cutlass::bfloat16_t;
     constexpr int kBlock = 8;
     constexpr int kRowBlocks = Rows / kBlock;
     constexpr int kColBlocks = Cols / kBlock;
@@ -439,10 +447,13 @@ __device__ void smem_cvt_bf16_to_fp32(
         int br = (blk / kColBlocks) * kBlock;
         int bc = (blk % kColBlocks) * kBlock;
         int e0 = lane_id * 2;
-        int e1 = lane_id * 2 + 1;
         int r0 = br + e0 / kBlock, c0 = bc + e0 % kBlock;
-        int r1 = br + e1 / kBlock, c1 = bc + e1 % kBlock;
-        fp32_view(r0, c0) = bf16_to_f32(bf16_view(r0, c0));
-        fp32_view(r1, c1) = bf16_to_f32(bf16_view(r1, c1));
+
+        uint32_t bf16_pair =
+            reinterpret_cast<uint32_t const&>(bf16_view(r0, c0));
+        BF16 bf16_0 = BF16::bitcast(uint16_t(bf16_pair));
+        BF16 bf16_1 = BF16::bitcast(uint16_t(bf16_pair >> 16));
+        float2 fp32_pair{bf16_to_f32(bf16_0), bf16_to_f32(bf16_1)};
+        reinterpret_cast<float2&>(fp32_view(r0, c0)) = fp32_pair;
     }
 }
