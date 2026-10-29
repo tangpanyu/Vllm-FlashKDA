@@ -1,0 +1,1930 @@
+diff --git a/README.md b/README.md
+index b3d9cfd..e97e536 100644
+--- a/README.md
++++ b/README.md
+@@ -82,7 +82,8 @@ bash tests/test.sh
+ 
+ ```python
+ flash_kda.fwd(q, k, v, g, beta, scale, out, A_log, dt_bias, lower_bound,
+-              initial_state=None, final_state=None, cu_seqlens=None)
++              initial_state=None, final_state=None, cu_seqlens=None,
++              use_vsplit=False, use_vsplit_cluster=False)
+ ```
+ 
+ **Parameters:**
+@@ -102,6 +103,8 @@ flash_kda.fwd(q, k, v, g, beta, scale, out, A_log, dt_bias, lower_bound,
+ | `initial_state` | bf16/fp32/None | `[B, H, V, K]` or `[N, H, V, K]` | (optional) Initial recurrent state |
+ | `final_state` | bf16/fp32/None | `[B, H, V, K]` or `[N, H, V, K]` | (optional, output) Final recurrent state |
+ | `cu_seqlens` | int64 | `[N+1]` | (optional) Cumulative sequence lengths for variable-length batching |
++| `use_vsplit` | bool | scalar | Use the experimental `VD=64` K2 path |
++| `use_vsplit_cluster` | bool | scalar | Use two-CTA SM90+ cluster multicast; implies `use_vsplit=True` |
+ 
+ - Currently requires `K = V = 128`.
+ - `initial_state` / `final_state` accept `None` (stateless), bf16, or fp32 tensors. When both are provided, their dtypes must match.
+@@ -114,6 +117,9 @@ For a practical CUDA kernel profiling workflow, including kernel filtering,
+ occupancy, shared-memory, scheduler stalls, and Nsight Compute replay caveats,
+ see the [Nsight Compute profiling guide](docs/ncu-kernel-profiling-guide.md).
+ 
++For the experimental H100 two-CTA V-split cluster path, see the
++[K2 cluster multicast design and usage guide](docs/k2-vsplit-cluster-multicast.md).
++
+ To set up IntelliSense (clangd) for the CUDA/C++ sources, run:
+ 
+ ```bash
+diff --git a/csrc/flash_kda.cpp b/csrc/flash_kda.cpp
+index a04ffc2..b56ad70 100644
+--- a/csrc/flash_kda.cpp
++++ b/csrc/flash_kda.cpp
+@@ -37,8 +37,24 @@ void fwd(
+     std::optional<torch::Tensor> initial_state = std::nullopt,
+     std::optional<torch::Tensor> final_state = std::nullopt,
+     std::optional<torch::Tensor> cu_seqlens = std::nullopt,
+-    bool use_vsplit = false
++    bool use_vsplit = false,
++    bool use_vsplit_cluster = false
+ ) {
++    use_vsplit = use_vsplit || use_vsplit_cluster;
++
++    if (use_vsplit_cluster) {
++        int device = -1;
++        cudaDeviceProp properties{};
++        TORCH_CHECK(cudaGetDevice(&device) == cudaSuccess,
++                    "failed to query the current CUDA device");
++        TORCH_CHECK(cudaGetDeviceProperties(&properties, device) == cudaSuccess,
++                    "failed to query CUDA device properties");
++        TORCH_CHECK(properties.major >= 9,
++                    "use_vsplit_cluster requires compute capability 9.0+; got ",
++                    properties.name, " with compute capability ",
++                    properties.major, ".", properties.minor);
++    }
++
+     TORCH_CHECK(q.is_cuda() && k.is_cuda() && v.is_cuda() && g.is_cuda() && beta.is_cuda() && out.is_cuda() && workspace.is_cuda(),
+                 "all tensors must be on CUDA");
+     TORCH_CHECK(q.is_contiguous() && k.is_contiguous() && v.is_contiguous() && g.is_contiguous() && beta.is_contiguous() && out.is_contiguous() && workspace.is_contiguous(),
+@@ -185,7 +201,7 @@ void fwd(
+             initial_state_raw, scale_f, final_state_raw, out_ptr, \
+             workspace_ptr, total_tiles, \
+             int(T_total), int(H), int(N_val), cu_seqlens_dev, \
+-            A_log_ptr, dt_bias_ptr, gate_scale, use_vsplit, stream)
++            A_log_ptr, dt_bias_ptr, gate_scale, use_vsplit, use_vsplit_cluster, stream)
+ 
+     #define DISPATCH_STATE(VL) \
+         if (!has_state_in && !has_state_out) { \
+@@ -221,7 +237,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
+         py::arg("workspace"),
+         py::arg("A_log"), py::arg("dt_bias"), py::arg("lower_bound"),
+         py::arg("initial_state") = py::none(), py::arg("final_state") = py::none(),
+-        py::arg("cu_seqlens") = py::none(), py::arg("use_vsplit") = false);
++        py::arg("cu_seqlens") = py::none(), py::arg("use_vsplit") = false,
++        py::arg("use_vsplit_cluster") = false);
+     m.def("get_workspace_size",
+         static_cast<int64_t(*)(int64_t, int64_t, int64_t)>(&get_workspace_size),
+         "Get workspace size in bytes",
+diff --git a/csrc/fwd.h b/csrc/fwd.h
+index 171d2ac..013fb15 100644
+--- a/csrc/fwd.h
++++ b/csrc/fwd.h
+@@ -24,5 +24,6 @@ void launch_fwd(
+     float const* dt_bias_ptr,
+     float gate_scale,
+     bool use_vsplit,
++    bool use_vsplit_cluster,
+     cudaStream_t stream
+ );
+diff --git a/csrc/smxx/fwd_kernel2_1.cuh b/csrc/smxx/fwd_kernel2_1.cuh
+index d14cfc8..c2258f7 100644
+--- a/csrc/smxx/fwd_kernel2_1.cuh
++++ b/csrc/smxx/fwd_kernel2_1.cuh
+@@ -133,6 +133,32 @@ struct SharedStorageK2 {
+     alignas(16) cutlass::arch::ClusterTransactionBarrier state_acc_tma_barrier;
+ };
+ 
++// Rank 0 loads each common tile once and multicasts it into both CTAs' shared
++// memory. The multicast TMA transaction arrives on the remote CTA's mbarrier,
++// so rank 1 deliberately issues no duplicate common-data load.
++template <bool UseClusterMulticast, class TmaLoad, class Barrier, class GmemTensor, class SmemTensor>
++CUTLASS_DEVICE
++void issue_common_tma_tile(
++    TmaLoad const& tma_load,
++    Barrier& barrier,
++    GmemTensor const& gmem_tile,
++    SmemTensor smem_tile,
++    int cluster_rank
++) {
++    if constexpr (UseClusterMulticast) {
++        constexpr uint16_t kClusterMask = 0x3;  // ranks 0 and 1 in Shape<_2,_1>
++        if (cluster_rank == 0) {
++            auto cta_tma = tma_load.get_slice(Int<0>{});
++            cute::copy(tma_load.with(barrier, kClusterMask),
++                cta_tma.partition_S(gmem_tile), cta_tma.partition_D(smem_tile));
++        }
++    } else {
++        auto cta_tma = tma_load.get_slice(Int<0>{});
++        cute::copy(tma_load.with(barrier),
++            cta_tma.partition_S(gmem_tile), cta_tma.partition_D(smem_tile));
++    }
++}
++
+ // ==================== Kernel 2: Recurrence ====================
+ template <
+     class TmaLoadV,
+@@ -151,7 +177,8 @@ template <
+     bool HasStateIn = true,
+     bool HasStateOut = true,
+     bool StateFP32 = false,
+-    bool IsVarlen = true
++    bool IsVarlen = true,
++    bool UseClusterMulticast = false
+ >
+ __global__ void __launch_bounds__(NumThreads) _flash_kda_fwd_recurrence(
+     CUTE_GRID_CONSTANT TmaLoadV const tma_load_v,
+@@ -192,6 +219,11 @@ __global__ void __launch_bounds__(NumThreads) _flash_kda_fwd_recurrence(
+     using TMAGTotalSmemLayout = typename Layouts::TMAGTotalSmemLayout;
+     constexpr int kWarpSize = 32;
+     constexpr int kComputeThreads = 128;
++    using LoadClusterShape = std::conditional_t<
++        UseClusterMulticast,
++        Shape<_2, _1>,
++        Shape<_1, _1>
++    >;
+ 
+     // Transaction bytes: v + beta + k_decayed + q_decayed + k_restored + g_total + INV + Mqk
+     constexpr uint32_t kTmaTransactionBytes =
+@@ -226,7 +258,8 @@ __global__ void __launch_bounds__(NumThreads) _flash_kda_fwd_recurrence(
+     LoadPipeline load_pipeline = make_load_pipeline<InputStages>(
+         shared_storage.load_pipeline,
+         kTmaTransactionBytes,
+-        warp_role, 1, kComputeThreads
++        warp_role, 1, kComputeThreads,
++        LoadClusterShape{}
+     );
+     using StorePipelineState = cutlass::PipelineState<OutputStages>;
+     using StorePipeline = cutlass::PipelineAsync<OutputStages>;
+@@ -234,6 +267,14 @@ __global__ void __launch_bounds__(NumThreads) _flash_kda_fwd_recurrence(
+         shared_storage.store_pipeline,
+         warp_role, kComputeThreads, 1
+     );
++
++    if constexpr (UseClusterMulticast) {
++        // Pipeline barriers live at identical shared-memory offsets in both
++        // CTAs. Make every initialization visible before a remote multicast or
++        // remote consumer-release can target those barriers.
++        __syncthreads();
++        cute::cluster_sync();
++    }
+ #endif
+ 
+     // --- per-block sequence info
+@@ -339,6 +380,13 @@ __global__ void __launch_bounds__(NumThreads) _flash_kda_fwd_recurrence(
+         }
+         __syncthreads();
+     }
++
++    if constexpr (UseClusterMulticast && HasStateIn && StateFP32) {
++        // state_fp32_buf aliases the input/output pipeline storage.  The local
++        // __syncthreads() above does not stop rank 0 from multicasting into
++        // rank 1's input stages while rank 1 is still converting FP32 state.
++        cute::cluster_sync();
++    }
+ #endif
+ 
+ #ifndef TMA_DISABLE_ALL
+@@ -360,13 +408,10 @@ __global__ void __launch_bounds__(NumThreads) _flash_kda_fwd_recurrence(
+ 
+         LoadPipelineState load_write = cutlass::make_producer_start_state<LoadPipeline>();
+         auto cta_tma_load_v = tma_load_v.get_slice(Int<0>{});
+-        auto cta_tma_load_beta = tma_load_beta.get_slice(Int<0>{});
+-        auto cta_ws_kd = tma_load_ws_kd.get_slice(Int<0>{});
+-        auto cta_ws_qd = tma_load_ws_qd.get_slice(Int<0>{});
+-        auto cta_ws_kr = tma_load_ws_kr.get_slice(Int<0>{});
+-        auto cta_ws_gt = tma_load_ws_gt.get_slice(Int<0>{});
+-        auto cta_ws_inv = tma_load_ws_inv.get_slice(Int<0>{});
+-        auto cta_ws_mqk = tma_load_ws_mqk.get_slice(Int<0>{});
++        int cluster_rank = 0;
++        if constexpr (UseClusterMulticast) {
++            cluster_rank = int(cute::block_rank_in_cluster());
++        }
+ 
+         for (int t = 0; t < t_tiles; ++t) {
+             load_pipeline.producer_acquire(load_write);
+@@ -389,8 +434,8 @@ __global__ void __launch_bounds__(NumThreads) _flash_kda_fwd_recurrence(
+             auto beta_off = g_beta.layout()(beta_aligned);
+             Tensor g_beta_tile = make_tensor(g_beta.data() + beta_off, BetaSmemLayout{});
+             Tensor s_beta_tile = make_tensor(make_smem_ptr(shared_storage.input[stage].beta.begin()), TMABetaSmemLayout{});
+-            cute::copy(tma_load_beta.with(*tma_barrier),
+-                cta_tma_load_beta.partition_S(g_beta_tile), cta_tma_load_beta.partition_D(s_beta_tile));
++            issue_common_tma_tile<UseClusterMulticast>(
++                tma_load_beta, *tma_barrier, g_beta_tile, s_beta_tile, cluster_rank);
+ 
+             // TMA load workspace: k_decayed
+             {
+@@ -398,7 +443,8 @@ __global__ void __launch_bounds__(NumThreads) _flash_kda_fwd_recurrence(
+                 Tensor g_tile = make_tensor(g_ws_kd.data() + off,
+                     make_layout(make_shape(Int<1>{}, Int<CHUNK>{}, Int<D>{}), stride(g_ws_kd.layout())));
+                 Tensor s_tile = make_tensor(make_smem_ptr(shared_storage.input[stage].k_decayed.begin()), TMAMMALayout{});
+-                cute::copy(tma_load_ws_kd.with(*tma_barrier), cta_ws_kd.partition_S(g_tile), cta_ws_kd.partition_D(s_tile));
++                issue_common_tma_tile<UseClusterMulticast>(
++                    tma_load_ws_kd, *tma_barrier, g_tile, s_tile, cluster_rank);
+             }
+             // q_decayed
+             {
+@@ -406,7 +452,8 @@ __global__ void __launch_bounds__(NumThreads) _flash_kda_fwd_recurrence(
+                 Tensor g_tile = make_tensor(g_ws_qd.data() + off,
+                     make_layout(make_shape(Int<1>{}, Int<CHUNK>{}, Int<D>{}), stride(g_ws_qd.layout())));
+                 Tensor s_tile = make_tensor(make_smem_ptr(shared_storage.input[stage].q_decayed.begin()), TMAMMALayout{});
+-                cute::copy(tma_load_ws_qd.with(*tma_barrier), cta_ws_qd.partition_S(g_tile), cta_ws_qd.partition_D(s_tile));
++                issue_common_tma_tile<UseClusterMulticast>(
++                    tma_load_ws_qd, *tma_barrier, g_tile, s_tile, cluster_rank);
+             }
+             // k_restored
+             {
+@@ -414,7 +461,8 @@ __global__ void __launch_bounds__(NumThreads) _flash_kda_fwd_recurrence(
+                 Tensor g_tile = make_tensor(g_ws_kr.data() + off,
+                     make_layout(make_shape(Int<1>{}, Int<CHUNK>{}, Int<D>{}), stride(g_ws_kr.layout())));
+                 Tensor s_tile = make_tensor(make_smem_ptr(shared_storage.input[stage].k_restored.begin()), TMAMMALayout{});
+-                cute::copy(tma_load_ws_kr.with(*tma_barrier), cta_ws_kr.partition_S(g_tile), cta_ws_kr.partition_D(s_tile));
++                issue_common_tma_tile<UseClusterMulticast>(
++                    tma_load_ws_kr, *tma_barrier, g_tile, s_tile, cluster_rank);
+             }
+             // g_total
+             {
+@@ -422,7 +470,8 @@ __global__ void __launch_bounds__(NumThreads) _flash_kda_fwd_recurrence(
+                 Tensor g_tile = make_tensor(g_ws_gt.data() + off,
+                     make_layout(make_shape(Int<1>{}, Int<D>{}), stride(g_ws_gt.layout())));
+                 Tensor s_tile = make_tensor(make_smem_ptr(shared_storage.input[stage].g_total.begin()), TMAGTotalSmemLayout{});
+-                cute::copy(tma_load_ws_gt.with(*tma_barrier), cta_ws_gt.partition_S(g_tile), cta_ws_gt.partition_D(s_tile));
++                issue_common_tma_tile<UseClusterMulticast>(
++                    tma_load_ws_gt, *tma_barrier, g_tile, s_tile, cluster_rank);
+             }
+             // INV
+             {
+@@ -430,7 +479,8 @@ __global__ void __launch_bounds__(NumThreads) _flash_kda_fwd_recurrence(
+                 Tensor g_tile = make_tensor(g_ws_inv.data() + off,
+                     make_layout(make_shape(Int<1>{}, Int<CHUNK>{}, Int<CHUNK>{}), stride(g_ws_inv.layout())));
+                 Tensor s_tile = make_tensor(make_smem_ptr(shared_storage.input[stage].INV.begin()), TMALMLayout{});
+-                cute::copy(tma_load_ws_inv.with(*tma_barrier), cta_ws_inv.partition_S(g_tile), cta_ws_inv.partition_D(s_tile));
++                issue_common_tma_tile<UseClusterMulticast>(
++                    tma_load_ws_inv, *tma_barrier, g_tile, s_tile, cluster_rank);
+             }
+             // Mqk
+             {
+@@ -438,7 +488,8 @@ __global__ void __launch_bounds__(NumThreads) _flash_kda_fwd_recurrence(
+                 Tensor g_tile = make_tensor(g_ws_mqk.data() + off,
+                     make_layout(make_shape(Int<1>{}, Int<CHUNK>{}, Int<CHUNK>{}), stride(g_ws_mqk.layout())));
+                 Tensor s_tile = make_tensor(make_smem_ptr(shared_storage.input[stage].Mqk.begin()), TMALMLayout{});
+-                cute::copy(tma_load_ws_mqk.with(*tma_barrier), cta_ws_mqk.partition_S(g_tile), cta_ws_mqk.partition_D(s_tile));
++                issue_common_tma_tile<UseClusterMulticast>(
++                    tma_load_ws_mqk, *tma_barrier, g_tile, s_tile, cluster_rank);
+             }
+ 
+             ++load_write;
+@@ -861,6 +912,13 @@ __global__ void __launch_bounds__(NumThreads) _flash_kda_fwd_recurrence(
+ 
+     __syncthreads();
+ #endif
++
++    if constexpr (UseClusterMulticast) {
++        // No CTA may exit while its peer can still address cluster shared
++        // memory or a remote pipeline barrier.
++        __syncthreads();
++        cute::cluster_sync();
++    }
+ }
+ 
+ } // namespace flash_kda_vsplit
+diff --git a/csrc/smxx/fwd_launch.cu b/csrc/smxx/fwd_launch.cu
+index 5d7b8ba..ed280ce 100644
+--- a/csrc/smxx/fwd_launch.cu
++++ b/csrc/smxx/fwd_launch.cu
+@@ -2,6 +2,9 @@
+ #include "fwd_kernel1.cuh"
+ #include "fwd_kernel2.cuh"
+ #include "fwd_kernel2_1.cuh"
++#include "tma_multicast_compat.cuh"
++
++#include <stdexcept>
+ 
+ // ==================== launch_fwd ====================
+ template <int D, bool HasStateIn, bool HasStateOut, bool StateFP32, bool IsVarlen>
+@@ -25,6 +28,7 @@ void launch_fwd(
+     float const* dt_bias_ptr,
+     float gate_scale,
+     bool use_vsplit,
++    bool use_vsplit_cluster,
+     cudaStream_t stream
+ ) {
+     using BF16 = cutlass::bfloat16_t;
+@@ -131,6 +135,24 @@ void launch_fwd(
+     auto tma_load_ws_kr_vsplit = make_tma_copy(SM90_TMA_LOAD{}, m_ws_kr, K2VSplitTMAMMALayout{});
+     auto tma_store_out_vsplit = make_tma_copy(SM90_TMA_STORE{}, m_out, K2VSplitTMAVOLayout{});
+ 
++    // Rank 0 issues each common tile once and multicasts the complete tile into
++    // both CTAs. The descriptor therefore retains one logical issuing slice;
++    // the cluster destination set is supplied by the multicast mask in K2.
++    auto tma_load_beta2_vsplit_cluster = make_tma_copy(
++        FLASH_KDA_TMA_LOAD_MULTICAST{}, m_beta, TMABetaSmemLayout{});
++    auto tma_load_ws_kd_vsplit_cluster = make_tma_copy(
++        FLASH_KDA_TMA_LOAD_MULTICAST{}, m_ws_kd, K2VSplitTMAMMALayout{});
++    auto tma_load_ws_qd_vsplit_cluster = make_tma_copy(
++        FLASH_KDA_TMA_LOAD_MULTICAST{}, m_ws_qd, K2VSplitTMAMMALayout{});
++    auto tma_load_ws_kr_vsplit_cluster = make_tma_copy(
++        FLASH_KDA_TMA_LOAD_MULTICAST{}, m_ws_kr, K2VSplitTMAMMALayout{});
++    auto tma_load_ws_gt_vsplit_cluster = make_tma_copy(
++        FLASH_KDA_TMA_LOAD_MULTICAST{}, m_ws_gt, TMAGTotalSmemLayout{});
++    auto tma_load_ws_inv_vsplit_cluster = make_tma_copy(
++        FLASH_KDA_TMA_LOAD_MULTICAST{}, m_ws_inv, TMALMLayout{});
++    auto tma_load_ws_mqk_vsplit_cluster = make_tma_copy(
++        FLASH_KDA_TMA_LOAD_MULTICAST{}, m_ws_mqk, TMALMLayout{});
++
+     // --- State TMA descriptors (conditional on HasStateIn/HasStateOut and StateFP32)
+     auto make_state_tma = [&]() {
+         if constexpr (StateFP32) {
+@@ -229,34 +251,80 @@ void launch_fwd(
+                 K2VSplitL, kVSplitInputStages, kOutputStages>;
+         int smem_size_k2 = sizeof(SharedStorageK2T);
+ 
+-        auto kernel2 = flash_kda_vsplit::_flash_kda_fwd_recurrence<
+-            decltype(tma_load_v_vsplit), decltype(tma_load_beta2),
+-            decltype(tma_load_ws_kd_vsplit), decltype(tma_load_ws_qd_vsplit),
+-            decltype(tma_load_ws_kr_vsplit), decltype(tma_load_ws_gt),
+-            decltype(tma_load_ws_inv), decltype(tma_load_ws_mqk),
+-            decltype(tma_load_initial_state_vsplit),
+-            decltype(tma_store_final_state_vsplit),
+-            decltype(tma_store_out_vsplit),
+-            CHUNK, D, VD, kVSplitInputStages, kOutputStages, kK2Threads,
+-            HasStateIn, HasStateOut, StateFP32, IsVarlen
+-        >;
+-
+-        cudaFuncSetAttribute(kernel2, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size_k2);
+-
+         // V split is the fastest-varying CTA dimension, matching the kernel's
+         // (v_idx, seq_idx, head_idx) block-index mapping.
+         dim3 grid_k2(D / VD, N, H);
+         dim3 block_k2(kK2Threads);
+ 
+-        kernel2<<<grid_k2, block_k2, smem_size_k2, stream>>>(
+-            tma_load_v_vsplit, tma_load_beta2,
+-            tma_load_ws_kd_vsplit, tma_load_ws_qd_vsplit, tma_load_ws_kr_vsplit,
+-            tma_load_ws_gt, tma_load_ws_inv, tma_load_ws_mqk,
+-            tma_load_initial_state_vsplit,
+-            tma_store_final_state_vsplit,
+-            tma_store_out_vsplit,
+-            out_ptr, T_total, H, N, cu_seqlens_ptr, total_tiles
+-        );
++        if (use_vsplit_cluster) {
++            auto kernel2_cluster = flash_kda_vsplit::_flash_kda_fwd_recurrence<
++                decltype(tma_load_v_vsplit), decltype(tma_load_beta2_vsplit_cluster),
++                decltype(tma_load_ws_kd_vsplit_cluster),
++                decltype(tma_load_ws_qd_vsplit_cluster),
++                decltype(tma_load_ws_kr_vsplit_cluster),
++                decltype(tma_load_ws_gt_vsplit_cluster),
++                decltype(tma_load_ws_inv_vsplit_cluster),
++                decltype(tma_load_ws_mqk_vsplit_cluster),
++                decltype(tma_load_initial_state_vsplit),
++                decltype(tma_store_final_state_vsplit),
++                decltype(tma_store_out_vsplit),
++                CHUNK, D, VD, kVSplitInputStages, kOutputStages, kK2Threads,
++                HasStateIn, HasStateOut, StateFP32, IsVarlen, true
++            >;
++
++            cudaFuncSetAttribute(
++                kernel2_cluster,
++                cudaFuncAttributeMaxDynamicSharedMemorySize,
++                smem_size_k2);
++
++            dim3 cluster_k2(D / VD, 1, 1);
++            void const* kernel_ptr = reinterpret_cast<void const*>(kernel2_cluster);
++            cutlass::Status status = cutlass::launch_kernel_on_cluster(
++                {grid_k2, block_k2, cluster_k2, smem_size_k2, stream},
++                kernel_ptr,
++                tma_load_v_vsplit, tma_load_beta2_vsplit_cluster,
++                tma_load_ws_kd_vsplit_cluster,
++                tma_load_ws_qd_vsplit_cluster,
++                tma_load_ws_kr_vsplit_cluster,
++                tma_load_ws_gt_vsplit_cluster,
++                tma_load_ws_inv_vsplit_cluster,
++                tma_load_ws_mqk_vsplit_cluster,
++                tma_load_initial_state_vsplit,
++                tma_store_final_state_vsplit,
++                tma_store_out_vsplit,
++                out_ptr, T_total, H, N, cu_seqlens_ptr, total_tiles);
++
++            if (status != cutlass::Status::kSuccess) {
++                throw std::runtime_error("FlashKDA V-split cluster launch failed");
++            }
++        } else {
++            auto kernel2 = flash_kda_vsplit::_flash_kda_fwd_recurrence<
++                decltype(tma_load_v_vsplit), decltype(tma_load_beta2),
++                decltype(tma_load_ws_kd_vsplit), decltype(tma_load_ws_qd_vsplit),
++                decltype(tma_load_ws_kr_vsplit), decltype(tma_load_ws_gt),
++                decltype(tma_load_ws_inv), decltype(tma_load_ws_mqk),
++                decltype(tma_load_initial_state_vsplit),
++                decltype(tma_store_final_state_vsplit),
++                decltype(tma_store_out_vsplit),
++                CHUNK, D, VD, kVSplitInputStages, kOutputStages, kK2Threads,
++                HasStateIn, HasStateOut, StateFP32, IsVarlen, false
++            >;
++
++            cudaFuncSetAttribute(
++                kernel2,
++                cudaFuncAttributeMaxDynamicSharedMemorySize,
++                smem_size_k2);
++
++            kernel2<<<grid_k2, block_k2, smem_size_k2, stream>>>(
++                tma_load_v_vsplit, tma_load_beta2,
++                tma_load_ws_kd_vsplit, tma_load_ws_qd_vsplit,
++                tma_load_ws_kr_vsplit,
++                tma_load_ws_gt, tma_load_ws_inv, tma_load_ws_mqk,
++                tma_load_initial_state_vsplit,
++                tma_store_final_state_vsplit,
++                tma_store_out_vsplit,
++                out_ptr, T_total, H, N, cu_seqlens_ptr, total_tiles);
++        }
+     } else {
+         using SharedStorageK2T = SharedStorageK2<K2L, kInputStages, kOutputStages>;
+         int smem_size_k2 = sizeof(SharedStorageK2T);
+@@ -297,7 +365,7 @@ void launch_fwd(
+         cutlass::bfloat16_t const*, cutlass::bfloat16_t const*, \
+         cutlass::bfloat16_t const*, void const*, float, void*, \
+         cutlass::bfloat16_t*, void*, int, int, int, int, \
+-        int64_t const*, float const*, float const*, float, bool, cudaStream_t);
++        int64_t const*, float const*, float const*, float, bool, bool, cudaStream_t);
+ 
+ #define INSTANTIATE_STATE_VARIANTS(VL) \
+     INSTANTIATE_LAUNCH_FWD(128, true,  true,  false, VL) \
+diff --git a/csrc/smxx/utils.cuh b/csrc/smxx/utils.cuh
+index 0efb597..d47a641 100644
+--- a/csrc/smxx/utils.cuh
++++ b/csrc/smxx/utils.cuh
+@@ -83,14 +83,15 @@ enum class WarpRole {
+     NonParticipant,
+ };
+ 
+-template <int Stages>
++template <int Stages, class ClusterShape = Shape<_1, _1>>
+ CUTLASS_DEVICE
+ cutlass::PipelineTmaAsync<Stages> make_load_pipeline(
+     typename cutlass::PipelineTmaAsync<Stages>::SharedStorage& storage,
+     uint32_t transaction_bytes,
+     WarpRole warp_role,
+     uint32_t num_producers,
+-    uint32_t num_consumers
++    uint32_t num_consumers,
++    ClusterShape cluster_shape = {}
+ ) {
+     using Pipeline = cutlass::PipelineTmaAsync<Stages>;
+     typename Pipeline::Params params;
+@@ -110,7 +111,7 @@ cutlass::PipelineTmaAsync<Stages> make_load_pipeline(
+     params.num_consumers = num_consumers;
+     params.num_producers = num_producers;
+ 
+-    Pipeline pipeline(storage, params, Shape<_1,_1>{});
++    Pipeline pipeline(storage, params, cluster_shape);
+     cutlass::pipeline_init_wait(1);
+     return pipeline;
+ }
+diff --git a/docs/ncu-kernel-profiling-guide.md b/docs/ncu-kernel-profiling-guide.md
+index a2379be..554b767 100644
+--- a/docs/ncu-kernel-profiling-guide.md
++++ b/docs/ncu-kernel-profiling-guide.md
+@@ -6,7 +6,10 @@
+ 2. 报告输出的每一组数据怎样读。
+ 3. 怎样从汇总指标追到 CUDA 源码和真实 SASS。
+ 
+-文中的 K2 示例来自 RTX 5060 Ti、SM120、Nsight Compute 2025.4 上的真实报告。不同 GPU 上指标名称和硬件峰值可能变化，但分析顺序不变。
++文中的 K2 示例来自 RTX 5060 Ti（SM120）和 H100（SM90）上的真实报告，
++分析工具为 Nsight Compute 2025.4。不同 GPU 上可采集的指标名称和硬件峰值可能
++变化，但分析顺序不变；跨 GPU 比较时还必须控制 grid、stage 和 shared-memory
++配置。
+ 
+ 官方资料对应关系：
+ 
+@@ -104,7 +107,7 @@ ncu-ui report_name.ncu-rep
+   -k 'regex:^_ZN16flash_kda_vsplit25_flash_kda_fwd_recurrence.*' \
+   --launch-count 1 \
+   --force-overwrite \
+-  -o kda_probe \
++  -o ncu-reports/flashkda/rtx5060ti__vsplit__b1-t2048-h32__launchstats \
+   -- python tests/bench_vsplit.py \
+      --cases '1,2048,32' \
+      --warmup 0 --repeats 1 --inner 1
+@@ -114,13 +117,15 @@ ncu-ui report_name.ncu-rep
+ 
+ ```text
+ ==PROF== Profiling "...flash_kda_fwd_recurrence..."
+-==PROF== Report: kda_probe.ncu-rep
++==PROF== Report: ncu-reports/flashkda/rtx5060ti__vsplit__b1-t2048-h32__launchstats.ncu-rep
+ ```
+ 
+ 立刻读取它：
+ 
+ ```bash
+-"$NCU_BIN" --import kda_probe.ncu-rep --page details
++"$NCU_BIN" \
++  --import ncu-reports/flashkda/rtx5060ti__vsplit__b1-t2048-h32__launchstats.ncu-rep \
++  --page details
+ ```
+ 
+ 先核对：
+@@ -265,7 +270,7 @@ rg 'LDSM|STSM|HMMA|MMA|FFMA|F2FP' kda_source.csv
+   -k 'regex:^_ZN16flash_kda_vsplit25_flash_kda_fwd_recurrence.*' \
+   --launch-count 1 \
+   --force-overwrite \
+-  -o kda_full \
++  -o ncu-reports/flashkda/rtx5060ti__vsplit__b1-t2048-h32__full \
+   -- python tests/bench_vsplit.py \
+      --cases '1,2048,32' \
+      --warmup 0 --repeats 1 --inner 1
+@@ -326,12 +331,46 @@ mangled     ABI 符号名
+ 5. GUI 和生成报告的 CLI 版本是否兼容。
+ 6. Source 为空时，是否有 `-lineinfo`，采集时是否用了 `--import-source yes`。
+ 
+-## 4. 报告的三个页面分别看什么
++## 4. 报告的四个页面分别看什么
++
++### 4.1 Session：先确认报告是谁、在哪台机器上采的
++
++拿到一份别人传来的 `.ncu-rep`，第一步不是看 SOL，而是看 Session：
++
++```bash
++"$NCU_BIN" --import report.ncu-rep --page session
++```
++
++Session 页面包含三类关键事实：
++
++- `Profiler Command Line`：原始 NCU 命令和被测程序参数；
++- `Created`：报告创建时间；
++- `Device Attributes`：GPU 名称、SM 数量、compute capability 和显存容量。
++
++只提取最有用的字段：
++
++```bash
++"$NCU_BIN" --import report.ncu-rep --page session --csv \
++  | rg '^"(Profiler Command Line|Created|display_name|multiprocessor_count|compute_capability_major|compute_capability_minor)"'
++```
++
++例如一份旧 warp5 报告可以恢复出：
++
++```text
++Profiler Command Line ... --case pure_n16_t8192_h96 --profile-variant cluster ...
++display_name          NVIDIA H100 80GB HBM3
++multiprocessor_count  132
++compute capability    9.0
++```
++
++这比文件名可靠。文件可能被复制、改名或放错目录，但 profiler command line 和 device attributes 保存在报告内部。注意 NCU 不会自动记录 Git commit；需要把 commit 写进文件名、采集脚本或旁边的索引文档。
+ 
+-### 4.1 Details
++### 4.2 Details
+ 
+ ```bash
+-"$NCU_BIN" --import kda_full.ncu-rep --page details
++"$NCU_BIN" \
++  --import ncu-reports/flashkda/rtx5060ti__vsplit__b1-t2048-h32__full.ncu-rep \
++  --page details
+ ```
+ 
+ 这是日常主页面，按 section 显示整理后的表格和 rule 建议。适合回答“瓶颈属于哪一类”。
+@@ -339,14 +378,18 @@ mangled     ABI 符号名
+ 快速筛选：
+ 
+ ```bash
+-"$NCU_BIN" --import kda_full.ncu-rep --page details \
++"$NCU_BIN" \
++  --import ncu-reports/flashkda/rtx5060ti__vsplit__b1-t2048-h32__full.ncu-rep \
++  --page details \
+   | rg -i 'Duration|Throughput|Issue Slots|No Eligible|Shared Memory|Registers|Occupancy'
+ ```
+ 
+-### 4.2 Raw
++### 4.3 Raw
+ 
+ ```bash
+-"$NCU_BIN" --import kda_full.ncu-rep --page raw
++"$NCU_BIN" \
++  --import ncu-reports/flashkda/rtx5060ti__vsplit__b1-t2048-h32__full.ncu-rep \
++  --page raw
+ ```
+ 
+ 这里显示 metric 全名和原始值。适合：
+@@ -356,10 +399,12 @@ mangled     ABI 符号名
+ - 检查派生指标是否与底层计数一致。
+ - 发现 rule 的汇总口径是否误导。
+ 
+-### 4.3 Source
++### 4.4 Source
+ 
+ ```bash
+-"$NCU_BIN" --import kda_full.ncu-rep --page source --print-source sass
++"$NCU_BIN" \
++  --import ncu-reports/flashkda/rtx5060ti__vsplit__b1-t2048-h32__full.ncu-rep \
++  --page source --print-source sass
+ ```
+ 
+ 这里把指标归因到具体指令。适合回答：
+@@ -371,6 +416,80 @@ mangled     ABI 符号名
+ 
+ 注意：stall sampling 标在某条指令上，表示 warp 的 PC 当时停在那里，不保证这条指令就是根因。根因经常是前面生产它输入的 load、MMA 或 barrier。
+ 
++### 4.5 从报告识别实际 kernel 版本
++
++不要根据输出文件名判断 kernel 版本。先看 Details 顶部的 launch header：
++
++```bash
++"$NCU_BIN" --import report.ncu-rep --page details | sed -n '1,30p'
++```
++
++NCU 会打印类似：
++
++```text
++void _flash_kda_fwd_recurrence<..., 16, 128, 3, 2, 160, ..., long, 64, 1>(...)
++    (192, 16, 1)x(160, 1, 1), Cluster Size 2
++```
++
++对当前 vLLM FlashKDA K2，最有用的字段是 `NumThreads`、`VD` 和 `UseClusterMulticast`。再与 Details 中的 `Block Size`、`Cluster Size` 交叉验证：
++
++| 实际版本 | `VD` | Block Size | NCU `Cluster Size` | Warp 角色 |
++|---|---:|---:|---:|---|
++| original | 128 | 192 | 0 | 4 MMA + LOAD + STORE |
++| warp6 split | 64 | 192 | 0 | 4 MMA + LOAD + STORE |
++| warp6 cluster | 64 | 192 | 2 | 4 MMA + LOAD + STORE |
++| warp5 split | 64 | 160 | 0 | 4 MMA + fused LOAD/STORE |
++| warp5 cluster | 64 | 160 | 2 | 4 MMA + fused LOAD/STORE |
++
++这里的 160/192 是 CTA thread 数，不是寄存器数。寄存器必须另看 `Registers Per Thread` 和 `launch__registers_per_thread_allocated`。
++
++如果采集命令使用 `--launch-count 3` 或 `--profile-variant all`，一份报告可能依次包含 original、split 和 cluster 三个 launch。GUI 中要先选择目标 kernel，CLI 中则要逐个核对 Details 顶部的 launch header，不能把第一个 kernel 的 Block Size 当成整份报告的共同配置。
++
++一个真实反例是旧文件 `h100_b16_t8192_h96_split5.ncu-rep`。虽然文件名写着 `split5`，报告内部却是：
++
++```text
++Block Size 192
++VD         64
++Cluster    0
++```
++
++所以它实际是 warp6 split。真正的 warp5 split 报告是 block 160。出现这种情况通常是扩展没有重新安装、Volume 中仍是旧二进制，或输出文件名先于实现改动写好。
++
++### 4.6 判断 cluster 报告处于同步修改前还是修改后
++
++旧 cluster kernel 在每个 chunk 让四个 MMA warp 执行一次 CTA-wide `NamedBarrier`。其热点 SASS 通常是：
++
++```text
++BAR.SYNC.DEFER_BLOCKING 0x8, 0x80
++MEMBAR.ALL.CTA
++```
++
++其中 `0x80` 对应 128 个 compute threads。查找方法：
++
++```bash
++"$NCU_BIN" \
++  --import report.ncu-rep \
++  --page source --print-source sass --csv \
++  | rg -n 'BAR\.SYNC.*0x8|MEMBAR\.ALL\.CTA|SYNCS\.ARRIVE'
++```
++
++per-warp release 版本不再在该 chunk 位置执行 128-thread barrier，而是由四个 MMA warp 各自选出一个 lane，对 cluster empty barrier 发布 arrival。判断时必须结合 Source correlation 和执行次数，不能仅凭“报告里还有某条 `MEMBAR.ALL.CTA`”就认定旧同步仍存在，因为 kernel 初始化、state 转换和其他 CTA 同步也可能生成 `MEMBAR.ALL.CTA`。
++
++当前仓库的报告已按实际内容归档到 [`ncu-reports/INDEX.md`](../ncu-reports/INDEX.md)。命名格式为：
++
++```text
++<GPU>__<实际 kernel 版本>__<shape>__<采集范围>.ncu-rep
++```
++
++其中 `pre-perwarp` 明确表示报告早于 per-warp release。归档时建议同时记录：
++
++1. Git commit；
++2. GPU 和 compute capability；
++3. workload shape；
++4. 实际捕获的 kernel 版本；
++5. cache-control 与 replay 模式；
++6. 报告包含 `full` 还是有限 sections。
++
+ ## 5. Metric 名字怎样拆
+ 
+ 例如：
+@@ -609,10 +728,15 @@ memory_l1_wavefronts_shared          7421952
+ memory_l1_wavefronts_shared_ideal    7421952
+ derived excessive wavefronts               0
+ 
+-l1tex shared bank conflicts total     189580
+-l1tex shared-store bank conflicts     185495
++l1tex shared bank conflicts total     196622
++l1tex shared-store bank conflicts     195700
++l1tex shared-load bank conflicts         223
+ ```
+ 
++以上数值以当前保留的 `ncu-reports/flashkda/rtx5060ti__vsplit__b1-t2048-h32__full.ncu-rep` 经 NCU 2026.1 重新导出的 raw
++counter 为准。total 与 load/store 两项不满足简单加和，不能混用不同 counter
++口径计算冲突倍数。
++
+ `Excessive=0` 只说明这些指令没有产生相对 ideal 的 uncoalesced shared
+ wavefront，不能据此证明没有 bank conflict。
+ 
+@@ -655,11 +779,13 @@ store request 分母只加入普通 shared-store SASS 数，没有加入
+ | `LDS` / `LDSM` | shared memory load；`LDSM` 常用于 MMA fragment |
+ | `STS` / `STSM` | shared memory store；`STSM` 常用于 MMA fragment |
+ | `HMMA` / `MMA` | Tensor Core matrix multiply-accumulate |
++| `UTMALDG` / `UTMASTG` | TMA global-to-shared load / shared-to-global store |
+ | `FFMA` | FP32 fused multiply-add |
+ | `F2FP` | 浮点格式转换或打包 |
+ | `MOV` | 寄存器数据移动 |
+ | `BRA` / `BSSY` | 分支和控制流 |
+ | `BAR` / `MBAR` | barrier 或异步 pipeline 同步 |
++| `SYNCS.PHASECHK` | 检查异步 transaction barrier 的 phase/完成状态 |
+ 
+ 先能把代码分成这些类别，就足够做第一轮性能分析。
+ 
+@@ -855,41 +981,41 @@ Grid=(2, 1, 32)，共 64 CTA
+ 代表性指标：
+ 
+ ```text
+-Compute/Tensor pipeline utilization      约 23%
+-Memory throughput                       124.63 GB/s
+-Mem Busy                                 37.58%
+-Max Bandwidth                            35.28%
+-Mem Pipes Busy                            9.08%
+-L2 Hit Rate                              77.38%
+-Issue Slots Busy                          7.61%
+-Executed IPC                              0.30
+-No Eligible                              91.14%
+-Active Warps / Scheduler                  1.50
++Compute/Tensor pipeline utilization       22.23%
++Memory throughput                       132.78 GB/s
++Mem Busy                                 35.82%
++Max Bandwidth                            33.79%
++Mem Pipes Busy                            8.69%
++L2 Hit Rate                              77.36%
++Issue Slots Busy                          7.40%
++Executed IPC elapsed                      0.29
++No Eligible                              91.55%
++Active Warps / Scheduler                  1.51
+ Eligible Warps / Scheduler                0.09
+ Registers / Thread                       58，硬件按 64 分配
+ Shared Memory / CTA                      69.632 KB（含 driver 部分）
+ Shared-memory CTA limit                   1
+ ```
+ 
+-归一化后的 aggregate stall 构成约为：
++现存报告的 Warp State raw ratio 及其在全部 state ratio 中的归一化占比为：
+ 
+-| Stall | 相对占比 |
+-|---|---:|
+-| sleeping | 49.9% |
+-| MIO throttle | 18.1% |
+-| fixed-latency wait | 13.1% |
+-| long scoreboard | 5.7% |
+-| math-pipe throttle | 5.7% |
+-| short scoreboard | 5.5% |
+-| barrier | 0.6% |
++| Stall | cycles / issued instruction | 归一化占比 |
++|---|---:|---:|
++| sleeping | 8.949 | 50.1% |
++| MIO throttle | 2.986 | 16.7% |
++| fixed-latency wait | 1.827 | 10.2% |
++| long scoreboard | 0.911 | 5.1% |
++| math-pipe throttle | 0.839 | 4.7% |
++| short scoreboard | 0.801 | 4.5% |
++| barrier | 0.104 | 0.6% |
+ 
+-注意，K2 使用四个 MMA warp、一个 TMA load warp 和一个 TMA store warp。专用 warp 的正常等待会抬高 aggregate `sleeping`，不能把 49.9% 直接解释为可消除的 wall-clock 时间。
++注意，K2 使用四个 MMA warp、一个 TMA load warp 和一个 TMA store warp。专用 warp 的正常等待会抬高 aggregate `sleeping`，不能把 50.1% 直接解释为可消除的 wall-clock 时间。表中未列出 `selected` 和占比较小的其他 state，因此占比之和不为 100%。
+ 
+ ### 10.1 诊断过程
+ 
+ 第一步，Compute 和 DRAM 都不高，排除“峰值 Tensor Core bound”和“峰值 DRAM bandwidth bound”。
+ 
+-第二步，`No Eligible=91.14%`，说明 scheduler 绝大多数周期找不到能发射的 warp。
++第二步，`No Eligible=91.55%`，说明 scheduler 绝大多数周期找不到能发射的 warp。
+ 
+ 第三步，每个 scheduler 只有 1.5 个 active warp，而且 shared memory 只允许一个 CTA/SM，跨 CTA latency hiding 很弱。
+ 
+@@ -910,6 +1036,272 @@ $$
+ 
+ 这解释了为什么 Compute 和 Memory 吞吐可以同时低，也解释了为什么增加 prefetch 没有效果。
+ 
++### 10.2 H100 实例：Long Scoreboard 很高，但 DRAM 没有打满
++
++这一节分析 `ncu-reports/flashkda/h100__original-vsplit__b8-t2048-h96__full.ncu-rep` 中的 V-split K2。该报告
++对应尚未把 state 全程常驻寄存器的版本，不能用后续源码中的寄存器常驻实现解释
++这里的指标。
++
++报告里的实际模板和 launch 配置是：
++
++```text
++CHUNK=16
++D=128
++VD=64
++InputStages=2
++OutputStages=2
++Threads=192
++Grid=(2, 8, 96)，共 1536 CTA
++Registers / Thread Allocated=80
++Shared Memory / CTA=53.632 KB
++```
++
++先核对模板参数非常重要。当前工作区中的 stage 数可能已经改变，但 `.ncu-rep`
++记录的是采集时二进制里的模板实例，分析时应以报告中的 demangled kernel name 和
++LaunchStats 为准。
++
++#### 10.2.1 `cycles per issue` 到底是什么意思
++
++该报告的 Warp State 结果是：
++
++| 指标 | original | V-split |
++|---|---:|---:|
++| Warp Cycles Per Issued Instruction | 约 8.1 | 约 17.1 |
++| Long Scoreboard Cycles Per Issue | 3.00 | 9.32 |
++| Long Scoreboard 占 inter-issue 周期 | 37.1% | 54.5% |
++
++`9.32 cycles per issue` 不表示某次 L2 load 的延迟是 9.32 cycle，也不表示整个
++SM 每发一条指令就停 9.32 cycle。它表示：对 warp 的执行过程做平均，每成功发射
++一条指令，累计有 9.32 个 warp-cycle 因 Long Scoreboard 而无法发射下一条指令。
++
++例如某个等价执行过程最终发射 100 条指令，`9.32 cycles per issue` 可以理解为
++大约累计 932 个 Long Scoreboard warp-cycle。一次具体的 TMA transaction 仍可能
++有数百 cycle 延迟；这里是所有 warp、循环和已发射指令归一化后的平均值。
++
++对应占比为：
++
++$$
++\frac{3.00}{8.1}\approx37.1\%
++$$
++
++$$
++\frac{9.32}{17.1}\approx54.5\%
++$$
++
++因此，V-split 实例不是每条内存指令只慢了 9.32 cycle，而是 warp 的整体
++inter-issue 间隔中超过一半被归类为 Long Scoreboard。
++
++#### 10.2.2 先在 Source/SASS 中确认等待位置
++
++H100 V-split 的 Long Scoreboard not-issued samples 共 71420 个。其中 55991 个，
++即 78.4%，集中在下面的等待循环：
++
++```text
++SYNCS.PHASECHK.TRANS64.TRYWAIT ...
++@!P0 BRA ...
++```
++
++源码对应：
++
++```cpp
++load_pipeline.consumer_wait(load_read);
++```
++
++以及 CUTLASS pipeline 内部：
++
++```cpp
++full_barrier_ptr_[stage].wait(phase);
++```
++
++采样落在 `BRA` 上不表示分支本身很慢。`SYNCS.PHASECHK` 先检查 transaction
++barrier 的 phase，紧随其后的条件分支根据检查结果决定是否继续等待。这里的实际
++含义是：MMA consumer 已到达下一 input stage，但该 stage 的 TMA transaction
++还没有完成。
++
++CLI 中可以直接寻找这组指令：
++
++```bash
++"$NCU_BIN" \
++  --import ncu-reports/flashkda/h100__original-vsplit__b8-t2048-h96__full.ncu-rep \
++  --page source \
++  --print-source sass \
++  | rg -C 8 'SYNCS.PHASECHK|NANOSLEEP|UTMALDG'
++```
++
++注意，stall sampling 一般归因给正在等待的 consumer PC。定位根因时应继续向上
++追产生依赖的 TMA load 和对应的 barrier，而不能只修改被标红的 `BRA`。
++
++#### 10.2.3 Cache line、request 和 sector
++
++H100 的 L1/L2 cache line 是 128B，一条 cache line 又被分成四个 32B sector：
++
++```text
++地址偏移     0          32         64         96        128
++             | sector 0 | sector 1 | sector 2 | sector 3 |
++             |------------- 128B cache line --------------|
++```
++
++三者的统计含义不同：
++
++- `tag` 唯一标识一条 128B cache line。
++- `request` 是发给 L2 的命令；一个 L2 request 访问同一条 cache line 内的
++  1 到 4 个 sector。
++- `sector` 是实际请求、传输和 hit-rate 统计的 32B 单位。
++
++例如只访问一条 cache line 的 `[32, 64)`，统计为 1 request、1 sector；访问
++`[16, 80)` 则是 1 request、3 sectors；一次访问跨越两条 cache line 时至少需要
++两个 request/tag lookup。
++
++Sector hit 还要求 tag 和请求的 sector data 都存在。tag 不存在，或者 tag 存在但
++请求的 sector data 不存在，都会被统计为 sector miss。
++
++本次 V-split 报告中：
++
++```text
++L2 requests = 215.976 M
++L2 sectors  = 231.725 M
++```
++
++所以：
++
++$$
++\text{Sectors/Request}
++=\frac{231.725}{215.976}
++\approx1.073
++$$
++
++即每个 L2 request 平均涉及约 1.07 个 32B sector。这个数本身不能直接证明
++TMA access 没有合并，因为 TMA 会把 tile 分解为硬件请求；它只能证明 L2 的
++request 数远大于每次 request 涉及的 sector 数。
++
++#### 10.2.4 顶层 L2 Throughput 不等于 L2 data bandwidth
++
++NCU 的 throughput 是复合指标。顶层 throughput 会由多个底层计数构成，并以
++最繁忙的组成部分代表整个单元。因此必须在 Raw 页面展开 L2 子指标。
++
++该报告中的 H100 V-split 数据是：
++
++| L2/DRAM 子指标 | `% of peak sustained elapsed` | 含义 |
++|---|---:|---|
++| `lts__t_tag_requests` | 93.58% | L2 tag/request 查询路径 |
++| `lts__xbar2lts_cycles_active` | 64.63% | XBAR 向 L2 输入请求或数据 |
++| `lts__t_sectors` | 33.47% | tag 侧处理的 requested sectors |
++| `lts__d_sectors` | 36.13% | L2 data 侧处理的 sectors |
++| `lts__lts2xbar_cycles_active` | 35.33% | L2 向 XBAR/SM 返回数据 |
++| `lts__d_sectors_fill_device` | 26.06% | 从 device memory miss-fill 的 sectors |
++| `gpu__dram_throughput` | 40.64% | L2 与 HBM 之间的实际显存吞吐 |
++
++所以 GUI 中接近 100% 的 `L2 Throughput`，实际由
++`lts__t_tag_requests=93.58%` 决定。它不能表述成“L2 data 字节带宽已经达到
++94%”。L2 data sectors 和 L2-to-XBAR 返回路径只有约 35%。
++
++可以用 Raw 页面快速核对这些 metric：
++
++```bash
++"$NCU_BIN" \
++  --import ncu-reports/flashkda/h100__original-vsplit__b8-t2048-h96__full.ncu-rep \
++  --page raw \
++  | rg 'lts__throughput|lts__t_tag_requests|lts__t_sectors|lts__d_sectors|xbar2lts|lts2xbar|gpu__dram_throughput'
++```
++
++数据路径应理解为：
++
++```text
++TMA/global request
++        |
++        v
++L2 tag lookup                     <- hit 和 miss 都必须经过
++        |
++        +-- hit ---------------------------+
++        |                                  |
++        +-- miss -> HBM -> L2 fill --------+
++                                           v
++                                  TMA 写入 shared
++                                           |
++                                  mbarrier transaction 完成
++                                           |
++                                  MMA consumer 继续执行
++```
++
++所有访问 HBM 的 GPU 数据都要经过 L2，但反方向不成立：L2 的工作还包括 hit、
++tag lookup、write、fill 和内部数据传输。因此 L2 与 DRAM 的百分比不是同一个
++分母，也不存在 `L2%=DRAM%` 的守恒关系。
++
++#### 10.2.5 为什么 Long Scoreboard 高而 DRAM 只有 40.6%
++
++Long Scoreboard 描述依赖没有及时就绪，不表示 DRAM 字节带宽已经打满。低 DRAM
++吞吐与高 Long Scoreboard 可以同时出现，常见原因包括：
++
++1. outstanding miss 不够多，延迟存在但 memory-level parallelism 不足以打满 HBM。
++2. 请求先受上游 request/tag 处理速率限制，HBM 没有收到足够的连续字节流量。
++3. 部分请求命中 L2，消耗 L2 工作但不产生 HBM 流量。
++4. 多个 consumer warp 等待同一个 TMA stage barrier，active warp 很多但依赖不独立。
++
++本报告尤其符合第 2 和第 4 点：
++
++| Scheduler 指标 | original | V-split |
++|---|---:|---:|
++| Active Warps / Scheduler | 2.96 | 5.71 |
++| Eligible Warps / Scheduler | 0.488 | 0.511 |
++| Issue Active | 36.60% | 33.34% |
++
++V-split 的 active warp 几乎翻倍，但 eligible warp 基本不变。增加的 resident warp
++没有变成可发射的独立工作，而是大量停在 TMA stage 依赖上。
++
++同时，L2 request 数与 runtime 的变化高度一致：
++
++| 指标 | original | V-split | 变化 |
++|---|---:|---:|---:|
++| L2 requests | 147.9 M | 216.0 M | +46.0% |
++| L2 sectors | 161.8 M | 231.7 M | +43.2% |
++| NCU kernel duration | 1.167 ms | 1.687 ms | +44.6% |
++
++这组数据支持的判断是：该 H100 launch 的 L2 request/tag 处理已接近持续峰值；
++新增请求使总处理时间增加，最终在 TMA consumer barrier 上暴露为 Long
++Scoreboard。它不支持“HBM bandwidth 已满”的判断。
++
++#### 10.2.6 L1 GUI 指标怎样读
++
++L1TEX 同时承载 L1 data cache、texture 和 shared-memory 数据路径。顶层
++`L1 Throughput` 可能由 shared `LDSM/STSM`、local/global cache access 或其他
++L1TEX 子路径决定，不能直接解释成 global-load L1 cache bandwidth。
++
++GUI 中常见行的含义是：
++
++| GUI 行 | 应怎样理解 |
++|---|---|
++| `L1 Throughput` | L1TEX 多个子单元组成的顶层 throughput |
++| `L1 Throughput (Data)` | L1TEX data path 的活动程度 |
++| `L1 Sectors` | 普通 cache sector 请求速率 |
++| `L1 Hit Rate` | 被请求 sector 的命中率，不是吞吐率 |
++| `L1 Lookup Throughput` | L1 tag lookup 速率 |
++
++“hit rate 高、throughput 低”只表示请求不多，但其中较高比例命中；它不是
++“L1 容量太小”的表现。容量不足通常首先表现为 hit rate 下降。TMA 的
++global-to-shared 数据路径也不能只靠普通 global LSU load 的 L1 hit-rate 行来解释。
++
++#### 10.2.7 这份 H100 报告能和不能得出什么
++
++能得到的结论：
++
++1. Long Scoreboard 的主要采样位置是 input TMA transaction barrier。
++2. 顶层 L2 Throughput 由 tag/request 路径决定，而非 L2 data 字节带宽。
++3. DRAM 没有打满不排除 memory dependency latency；本例中 HBM 不是峰值带宽瓶颈。
++4. 单纯增加 occupancy 没有增加 eligible warp，多个 warp 的等待具有相关性。
++
++不能得到的结论：
++
++1. 不能把 H100 与 RTX 5060 Ti 的 stall 差异归因于单一架构因素。现有两份报告
++   使用了不同 grid、stage 和 shared-memory 配置。
++2. 不能根据 `L2 Throughput=93.58%` 声称 L2 data bandwidth 达到 93.58%。
++3. 不能把 PC sampling 标红的 `BRA` 当成根因；它只是 transaction wait 的
++   consumer/control-flow 位置。
++4. 不能用尚未进入该二进制的 state 寄存器常驻修改解释这份报告。
++
++若要比较 GPU 架构，至少需要两组受控实验：一组保持完全相同的
++`B/T/H/VD/InputStages`，另一组按 SM 数调整 grid、保持相近的 CTA/SM 和 wave 数。
++否则“瓶颈迁移”中会同时混入硬件、并发规模和 kernel 配置三个变量。
++
+ ## 11. Replay 为什么会改变你观察到的运行
+ 
+ 很多硬件计数器不能在一个 pass 同时采集。NCU 会多次执行被测 kernel，并合并结果。
+@@ -995,6 +1387,7 @@ Replay 会带来三个陷阱：
+   --launch-count 1 -o full -- command
+ 
+ # 读取报告
++"$NCU_BIN" --import full.ncu-rep --page session
+ "$NCU_BIN" --import full.ncu-rep --page details
+ "$NCU_BIN" --import full.ncu-rep --page raw
+ "$NCU_BIN" --import full.ncu-rep --page source --print-source sass
+@@ -1003,7 +1396,8 @@ Replay 会带来三个陷阱：
+ 最后记住这条诊断顺序：
+ 
+ ```text
+-先确认 kernel 和 launch
++先用 Session 确认机器、命令和 shape
++→ 再确认实际 kernel 版本和 launch
+ → 看 occupancy 与工作规模
+ → 用 SOL 做一级分类
+ → 吞吐都低就看 scheduler
+diff --git a/flash_kda/__init__.py b/flash_kda/__init__.py
+index 83a9272..e68b8f0 100644
+--- a/flash_kda/__init__.py
++++ b/flash_kda/__init__.py
+@@ -3,7 +3,8 @@ from flash_kda_C import fwd as _fwd_raw, get_workspace_size
+ 
+ 
+ def fwd(q, k, v, g, beta, scale, out, A_log, dt_bias, lower_bound,
+-        initial_state=None, final_state=None, cu_seqlens=None, use_vsplit=False):
++        initial_state=None, final_state=None, cu_seqlens=None, use_vsplit=False,
++        use_vsplit_cluster=False):
+     """FlashKDA forward (Flash Kimi Delta Attention).
+ 
+     Args:
+@@ -28,6 +29,9 @@ def fwd(q, k, v, g, beta, scale, out, A_log, dt_bias, lower_bound,
+             shape ``[N+1]``. When provided, ``B`` must be 1.
+         use_vsplit (bool): Select the experimental K2 kernel with ``VD=64``.
+             Defaults to ``False`` for the original unsplit K2 kernel.
++        use_vsplit_cluster (bool): Launch the ``VD=64`` K2 kernel as a
++            two-CTA cluster and multicast V-independent K2 inputs.
++            This implies ``use_vsplit=True``.
+ 
+     Notes:
+         * Currently requires ``K = V = 128``.
+@@ -42,4 +46,5 @@ def fwd(q, k, v, g, beta, scale, out, A_log, dt_bias, lower_bound,
+ 
+     _fwd_raw(q, k, v, g, beta, float(scale), out, workspace, A_log, dt_bias, lower_bound,
+              initial_state=initial_state, final_state=final_state, cu_seqlens=cu_seqlens,
+-             use_vsplit=use_vsplit)
++             use_vsplit=use_vsplit or use_vsplit_cluster,
++             use_vsplit_cluster=use_vsplit_cluster)
+diff --git a/tests/bench_vsplit.py b/tests/bench_vsplit.py
+index 8e35508..4a35534 100644
+--- a/tests/bench_vsplit.py
++++ b/tests/bench_vsplit.py
+@@ -1,219 +1,636 @@
+-"""Benchmark the original K2 kernel against the VD=64 V-split kernel.
++"""Correctness and latency comparison for the K2 V-split variants.
+ 
+-Run from the repository root with the conda base environment:
++The full case set follows the vLLM FlashKDA benchmark shape: D=128, FP32
++initial/final state, and 8192 total tokens.  ``mixed`` cases model vLLM's
++ordering of one-token decodes followed by one prefill sequence.
+ 
+-    conda run -n base python tests/bench_vsplit.py
++Examples:
++    python tests/bench_vsplit.py --mode smoke
++    python tests/bench_vsplit.py --mode cases
++    python tests/bench_vsplit.py --mode cases --case pure_n1_t8192_h96
++    python tests/bench_vsplit.py --mode profile \
++        --case mixed_d31_p8161_h96 --profile-variant cluster
+ 
+-Add ``--state`` to benchmark BF16 initial/final state traffic as well.
+-The measured region uses the raw extension API with a preallocated workspace,
+-so Python workspace allocation is excluded. Kernel 1, beta transpose, and
+-Kernel 2 are included in both variants.
++For NCU, use ``--mode profile`` so the driver emits only the requested forward
++launches, then filter for ``_flash_kda_fwd_recurrence`` in NCU.
+ """
+ 
++from __future__ import annotations
++
+ import argparse
++import dataclasses
+ import gc
+ import math
+ import statistics
++from collections.abc import Iterable
+ 
+ import torch
++import torch.nn.functional as F
+ 
+ import flash_kda_C
+ 
+ 
+ D = 128
+-DEFAULT_CASES = [
+-    # (1, 256, 1),
+-    # (1, 2048, 1),
+-    # (1, 2048, 4),
+-    (1, 2048, 32),
+-    # (4, 2048, 32),
+-    # (4, 512, 8),
+-]
++TOTAL_TOKENS = 8192
++LOWER_BOUND = -5.0
++VARIANTS = ("original", "split", "cluster")
++DEFAULT_L2_SCRUB_MIB = 256
++
++
++@dataclasses.dataclass(frozen=True)
++class Case:
++    name: str
++    heads: int
++    batch: int = 1
++    seq_len: int = 0
++    decode_count: int = 0
++    prefill_len: int = 0
++
++    def __post_init__(self) -> None:
++        fixed = self.decode_count == 0 and self.prefill_len == 0
++        if fixed:
++            if self.batch <= 0 or self.seq_len <= 0:
++                raise ValueError(f"invalid fixed case: {self}")
++        elif self.batch != 1 or self.seq_len != 0:
++            raise ValueError(f"mixed cases use batch=1 and seq_len=0: {self}")
++        elif self.decode_count <= 0 or self.prefill_len <= 0:
++            raise ValueError(f"invalid mixed case: {self}")
++        if self.heads <= 0:
++            raise ValueError(f"heads must be positive: {self}")
++
++    @property
++    def is_mixed(self) -> bool:
++        return self.decode_count > 0
++
++    @property
++    def total_tokens(self) -> int:
++        if self.is_mixed:
++            return self.decode_count + self.prefill_len
++        return self.batch * self.seq_len
++
++    @property
++    def num_sequences(self) -> int:
++        return self.decode_count + 1 if self.is_mixed else self.batch
++
++    @property
++    def shape(self) -> tuple[int, int, int, int]:
++        if self.is_mixed:
++            return (1, self.total_tokens, self.heads, D)
++        return (self.batch, self.seq_len, self.heads, D)
++
++    @property
++    def sequence_lengths(self) -> list[int]:
++        if self.is_mixed:
++            return [1] * self.decode_count + [self.prefill_len]
++        return [self.seq_len] * self.batch
++
++
++def _pure_cases() -> list[Case]:
++    return [
++        Case(
++            name=f"pure_n{batch}_t{seq_len}_h{heads}",
++            batch=batch,
++            seq_len=seq_len,
++            heads=heads,
++        )
++        for heads in (12, 96)
++        for batch, seq_len in ((1, 8192), (2, 4096), (4, 2048))
++    ]
++
++
++def _mixed_cases() -> list[Case]:
++    return [
++        Case(
++            name=f"mixed_d{decodes}_p{TOTAL_TOKENS - decodes}_h{heads}",
++            heads=heads,
++            decode_count=decodes,
++            prefill_len=TOTAL_TOKENS - decodes,
++        )
++        for heads in (12, 96)
++        for decodes in (7, 15, 31)
++    ]
+ 
+ 
+-def parse_cases(value):
+-    cases = []
+-    for item in value.split(";"):
+-        b, t, h = (int(x) for x in item.split(","))
+-        cases.append((b, t, h))
+-    return cases
++DEFAULT_CASES = _pure_cases() + _mixed_cases()
++
++SMOKE_CASES = [
++    Case(name="smoke_fixed_tail", batch=2, seq_len=37, heads=1),
++    Case(name="smoke_mixed_tail", heads=1, decode_count=3, prefill_len=61),
++]
+ 
+ 
+-def make_case(batch, seqlen, heads, with_state):
+-    shape = (batch, seqlen, heads, D)
+-    q = torch.randn(shape, device="cuda", dtype=torch.bfloat16)
+-    k = torch.randn_like(q)
+-    v = torch.randn_like(q)
+-    g = torch.randn_like(q)
+-    beta = torch.randn(
+-        (batch, seqlen, heads), device="cuda", dtype=torch.bfloat16
++@dataclasses.dataclass
++class Inputs:
++    q: torch.Tensor
++    k: torch.Tensor
++    v: torch.Tensor
++    g: torch.Tensor
++    beta: torch.Tensor
++    out: torch.Tensor
++    initial_state: torch.Tensor
++    final_state: torch.Tensor
++    workspace: torch.Tensor
++    A_log: torch.Tensor
++    dt_bias: torch.Tensor
++    cu_seqlens: torch.Tensor | None
++    scale: float
++
++
++def make_inputs(case: Case, seed: int = 42) -> Inputs:
++    if not torch.cuda.is_available():
++        raise RuntimeError("bench_vsplit.py requires a CUDA device")
++
++    torch.manual_seed(seed)
++    device = torch.device("cuda")
++    shape = case.shape
++
++    # Match the existing FlashKDA benchmark's input distribution.  K1 performs
++    # normalization again; pre-normalizing here keeps this driver comparable.
++    q = F.normalize(
++        torch.randn(shape, dtype=torch.float32, device=device), p=2, dim=-1
++    ).to(torch.bfloat16)
++    k = F.normalize(
++        torch.randn(shape, dtype=torch.float32, device=device), p=2, dim=-1
++    ).to(torch.bfloat16)
++    v = torch.randn(shape, dtype=torch.bfloat16, device=device)
++    g = torch.randn(shape, dtype=torch.bfloat16, device=device)
++    beta = torch.randn(shape[:-1], dtype=torch.bfloat16, device=device)
++    A_log = torch.rand(case.heads, dtype=torch.float32, device=device)
++    dt_bias = torch.rand(case.heads, D, dtype=torch.float32, device=device)
++
++    state_shape = (case.num_sequences, case.heads, D, D)
++    initial_state = torch.randn(state_shape, dtype=torch.float32, device=device)
++    final_state = torch.empty_like(initial_state)
++    out = torch.empty(shape, dtype=torch.bfloat16, device=device)
++
++    cu_seqlens = None
++    if case.is_mixed:
++        prefix = [0]
++        for length in case.sequence_lengths:
++            prefix.append(prefix[-1] + length)
++        # This repository's legacy binding requires int64 cu_seqlens. Decodes
++        # still precede the trailing prefill exactly as in the vLLM workload.
++        cu_seqlens = torch.tensor(prefix, dtype=torch.int64, device=device)
++
++    workspace_bytes = flash_kda_C.get_workspace_size(
++        case.total_tokens, case.heads, case.num_sequences
+     )
+-    out = torch.empty_like(q)
+-    a_log = torch.rand(heads, device="cuda", dtype=torch.float32)
+-    dt_bias = torch.rand(heads, D, device="cuda", dtype=torch.float32)
+-    workspace = torch.empty(
+-        flash_kda_C.get_workspace_size(batch * seqlen, heads, batch),
+-        device="cuda",
+-        dtype=torch.uint8,
++    workspace = torch.empty(workspace_bytes, dtype=torch.uint8, device=device)
++
++    return Inputs(
++        q=q,
++        k=k,
++        v=v,
++        g=g,
++        beta=beta,
++        out=out,
++        initial_state=initial_state,
++        final_state=final_state,
++        workspace=workspace,
++        A_log=A_log,
++        dt_bias=dt_bias,
++        cu_seqlens=cu_seqlens,
++        scale=1.0 / math.sqrt(D),
+     )
+ 
+-    initial_state = None
+-    final_state = None
+-    if with_state:
+-        initial_state = torch.randn(
+-            (batch, heads, D, D), device="cuda", dtype=torch.bfloat16
+-        )
+-        final_state = torch.empty_like(initial_state)
+-
+-    return {
+-        "q": q,
+-        "k": k,
+-        "v": v,
+-        "g": g,
+-        "beta": beta,
+-        "out": out,
+-        "workspace": workspace,
+-        "a_log": a_log,
+-        "dt_bias": dt_bias,
+-        "initial_state": initial_state,
+-        "final_state": final_state,
+-    }
+ 
++def run_variant(inputs: Inputs, variant: str) -> None:
++    if variant not in VARIANTS:
++        raise ValueError(f"unknown variant: {variant}")
++
++    common_kwargs = dict(
++        initial_state=inputs.initial_state,
++        final_state=inputs.final_state,
++        cu_seqlens=inputs.cu_seqlens,
++    )
++    if variant == "original":
++        flash_kda_C.fwd(
++            inputs.q,
++            inputs.k,
++            inputs.v,
++            inputs.g,
++            inputs.beta,
++            inputs.scale,
++            inputs.out,
++            inputs.workspace,
++            inputs.A_log,
++            inputs.dt_bias,
++            LOWER_BOUND,
++            **common_kwargs,
++        )
++        return
+ 
+-def run_kernel(case, use_vsplit):
+     flash_kda_C.fwd(
+-        case["q"],
+-        case["k"],
+-        case["v"],
+-        case["g"],
+-        case["beta"],
+-        1.0 / math.sqrt(D),
+-        case["out"],
+-        case["workspace"],
+-        case["a_log"],
+-        case["dt_bias"],
+-        -5.0,
+-        initial_state=case["initial_state"],
+-        final_state=case["final_state"],
+-        cu_seqlens=None,
+-        use_vsplit=use_vsplit,
++        inputs.q,
++        inputs.k,
++        inputs.v,
++        inputs.g,
++        inputs.beta,
++        inputs.scale,
++        inputs.out,
++        inputs.workspace,
++        inputs.A_log,
++        inputs.dt_bias,
++        LOWER_BOUND,
++        **common_kwargs,
++        use_vsplit=True,
++        use_vsplit_cluster=variant == "cluster",
+     )
+ 
+ 
+-def check_exact(case):
+-    run_kernel(case, False)
++def _snapshot(inputs: Inputs, variant: str) -> tuple[torch.Tensor, torch.Tensor]:
++    inputs.out.zero_()
++    inputs.final_state.zero_()
++    run_variant(inputs, variant)
+     torch.cuda.synchronize()
+-    original_out = case["out"].clone()
+-    original_state = (
+-        case["final_state"].clone() if case["final_state"] is not None else None
+-    )
++    return inputs.out.clone(), inputs.final_state.clone()
++
++
++def assert_case_exact(case: Case, seed: int = 42) -> None:
++    inputs = make_inputs(case, seed=seed)
++    assert_case_exact_with_inputs(case, inputs)
++
++
++def _capture_variant_graph(
++    inputs: Inputs, variant: str, capture_warmup: int = 3
++) -> torch.cuda.CUDAGraph:
++    """Capture exactly one forward launch for one variant.
++
++    Each variant owns an independent graph-private memory pool.  In particular,
++    the beta transpose performed by the stable API may allocate during capture;
++    sharing graph pools would constrain replay order, which conflicts with the
++    deliberately rotated benchmark order below.
++    """
++
++    capture_stream = torch.cuda.Stream()
++    capture_stream.wait_stream(torch.cuda.current_stream())
++    with torch.cuda.stream(capture_stream):
++        for _ in range(capture_warmup):
++            run_variant(inputs, variant)
++    capture_stream.synchronize()
++
++    graph = torch.cuda.CUDAGraph()
++    try:
++        with torch.cuda.graph(graph, stream=capture_stream):
++            run_variant(inputs, variant)
++    except Exception as error:
++        raise RuntimeError(
++            f"CUDA graph capture failed for variant={variant}. "
++            "V-split benchmarks require graph replay and will not silently "
++            "fall back to eager timing."
++        ) from error
++
++    torch.cuda.current_stream().wait_stream(capture_stream)
++    torch.cuda.synchronize()
++    return graph
++
++
++def _variant_order(
++    repeat: int, variants: tuple[str, ...] = VARIANTS
++) -> tuple[str, ...]:
++    """Balance first/middle/last position and alternate traversal direction."""
++
++    shift = (repeat // 2) % len(variants)
++    rotated = variants[shift:] + variants[:shift]
++    return rotated if repeat % 2 == 0 else tuple(reversed(rotated))
++
++
++def _time_graph_launches(
++    graph: torch.cuda.CUDAGraph,
++    scrub: torch.Tensor | None,
++    scrub_sink: torch.Tensor | None,
++    iterations: int,
++) -> list[float]:
++    """Time graph replays, optionally reading a buffer to evict L2 first."""
++
++    starts = [torch.cuda.Event(enable_timing=True) for _ in range(iterations)]
++    ends = [torch.cuda.Event(enable_timing=True) for _ in range(iterations)]
++
++    for start, end in zip(starts, ends):
++        if scrub is not None:
++            assert scrub_sink is not None
++            # Read the eviction buffer without modifying it.  The scalar sink
++            # prevents the reduction from being discarded while avoiding the
++            # cache-dirtying full-buffer write traffic of ``scrub.add_``.  The
++            # reduction is ordered before ``start`` on the same stream, so its
++            # cost is deliberately excluded from the reported launch time.
++            torch.sum(
++                scrub,
++                dim=(0,),
++                dtype=torch.int64,
++                out=scrub_sink,
++            )
++        start.record()
++        graph.replay()
++        end.record()
++
++    ends[-1].synchronize()
++    return [float(start.elapsed_time(end)) for start, end in zip(starts, ends)]
++
++
++def benchmark_variants(
++    inputs: Inputs,
++    warmup: int,
++    iterations: int,
++    repeats: int,
++    l2_scrub_mib: int,
++    variants: tuple[str, ...] = VARIANTS,
++) -> tuple[
++    dict[str, tuple[float, float, float]],
++    dict[str, torch.cuda.CUDAGraph],
++    tuple[torch.Tensor | None, torch.Tensor | None],
++]:
++    """Capture, replay, and summarize all variants under one timing policy."""
++
++    graphs = {
++        variant: _capture_variant_graph(inputs, variant) for variant in variants
++    }
+ 
+-    run_kernel(case, True)
++    # Exercise graph replay itself before timing.  Rotate warmups as well so no
++    # variant is always the first graph launched after capture.
++    for step in range(warmup):
++        for variant in _variant_order(step, variants):
++            graphs[variant].replay()
+     torch.cuda.synchronize()
+ 
+-    if not torch.equal(original_out, case["out"]):
+-        mismatches = torch.count_nonzero(original_out != case["out"]).item()
+-        max_error = (original_out.float() - case["out"].float()).abs().max().item()
+-        raise AssertionError(
+-            f"V-split output mismatch: count={mismatches}, max_error={max_error}"
++    if l2_scrub_mib:
++        scrub_bytes = l2_scrub_mib * 1024 * 1024
++        scrub = torch.zeros(scrub_bytes, dtype=torch.uint8, device="cuda")
++        scrub_sink = torch.empty((), dtype=torch.int64, device="cuda")
++    else:
++        # Zero selects steady-state timing: launch graph replays back-to-back
++        # without deliberately disturbing the cache between them.
++        scrub = None
++        scrub_sink = None
++    samples: dict[str, list[float]] = {variant: [] for variant in variants}
++
++    for repeat in range(repeats):
++        for variant in _variant_order(repeat, variants):
++            samples[variant].extend(
++                _time_graph_launches(
++                    graphs[variant], scrub, scrub_sink, iterations
++                )
++            )
++
++    summary = {
++        variant: (
++            statistics.median(values),
++            min(values),
++            max(values),
+         )
+-
+-    if original_state is not None and not torch.equal(
+-        original_state, case["final_state"]
+-    ):
+-        mismatches = torch.count_nonzero(
+-            original_state != case["final_state"]
+-        ).item()
+-        max_error = (
+-            original_state.float() - case["final_state"].float()
+-        ).abs().max().item()
+-        raise AssertionError(
+-            f"V-split state mismatch: count={mismatches}, max_error={max_error}"
++        for variant, values in samples.items()
++    }
++    # Return graph/scrub owners so their allocations stay alive until all
++    # reported timings have been consumed by the caller.
++    return summary, graphs, (scrub, scrub_sink)
++
++
++def _select_cases(pool: Iterable[Case], names: list[str]) -> list[Case]:
++    cases = list(pool)
++    if not names:
++        return cases
++    by_name = {case.name: case for case in cases}
++    missing = [name for name in names if name not in by_name]
++    if missing:
++        raise ValueError(
++            f"unknown case(s): {', '.join(missing)}; "
++            f"available: {', '.join(by_name)}"
+         )
++    return [by_name[name] for name in names]
+ 
+ 
+-def timed(case, use_vsplit, inner):
+-    start = torch.cuda.Event(enable_timing=True)
+-    end = torch.cuda.Event(enable_timing=True)
+-    start.record()
+-    for _ in range(inner):
+-        run_kernel(case, use_vsplit)
+-    end.record()
+-    end.synchronize()
+-    return start.elapsed_time(end) / inner
++def _print_case_legend() -> None:
++    print("Case names:")
++    print("  pure_nN_tT_hH  = N equal-length sequences, T tokens each, H local heads")
++    print("  mixed_dD_pP_hH = D one-token decodes plus one P-token prefill, H local heads")
+ 
+ 
+-def choose_inner(batch, seqlen, heads):
+-    work = batch * seqlen * heads
+-    if work <= 4096:
+-        return 30
+-    if work <= 32768:
+-        return 15
+-    return 8
++def run_cases(
++    cases: list[Case],
++    warmup: int,
++    iterations: int,
++    repeats: int,
++    l2_scrub_mib: int,
++) -> None:
++    print(f"GPU: {torch.cuda.get_device_name()}")
++    print("FP32 state in/out: True")
++    cache_mode = "steady" if l2_scrub_mib == 0 else f"cold ({l2_scrub_mib} MiB read)"
++    print(f"Cache mode: {cache_mode}")
++    _print_case_legend()
++    print("Latency columns are medians in microseconds (us).")
++    print("Timing uses CUDA events; torch milliseconds are converted to us.")
++    print("Speedup = original latency / variant latency; values above 1 are faster.")
++    print("Exact = split and cluster output/state are bitwise equal to original.")
++
++    case_width = max(20, *(len(case.name) for case in cases))
++    header = (
++        f"{'case':<{case_width}}  {'original us':>11}  {'split us':>11}  "
++        f"{'cluster us':>11}  {'split speedup':>13}  "
++        f"{'cluster speedup':>15}  {'exact':>5}"
++    )
++    print(header)
++    print("-" * len(header))
++
++    for index, case in enumerate(cases):
++        inputs = make_inputs(case, seed=42 + index)
++        assert_case_exact_with_inputs(case, inputs)
++        timings, graphs, scrub_owners = benchmark_variants(
++            inputs,
++            warmup=warmup,
++            iterations=iterations,
++            repeats=repeats,
++            l2_scrub_mib=l2_scrub_mib,
++        )
+ 
++        original = timings["original"][0]
++        split = timings["split"][0]
++        cluster = timings["cluster"][0]
++        print(
++            f"{case.name:<{case_width}}  {original * 1000:>11.2f}  "
++            f"{split * 1000:>11.2f}  {cluster * 1000:>11.2f}  "
++            f"{original / split:>12.3f}x  "
++            f"{original / cluster:>14.3f}x  {'yes':>5}"
++        )
++
++        del graphs, scrub_owners, inputs
++        gc.collect()
++        torch.cuda.empty_cache()
+ 
+-def main():
+-    parser = argparse.ArgumentParser()
+-    parser.add_argument(
+-        "--cases",
+-        type=parse_cases,
+-        default=DEFAULT_CASES,
+-        help='semicolon-separated "B,T,H" cases, e.g. "1,2048,1;1,2048,32"',
+-    )
+-    parser.add_argument("--state", action="store_true")
+-    parser.add_argument("--warmup", type=int, default=6)
+-    parser.add_argument("--repeats", type=int, default=2)
+-    parser.add_argument("--inner", type=int, default=0, help="0 selects automatically")
+-    parser.add_argument("--seed", type=int, default=2026)
+-    args = parser.parse_args()
+ 
+-    torch.set_grad_enabled(False)
+-    torch.manual_seed(args.seed)
++def run_upstream_baseline_cases(
++    cases: list[Case],
++    warmup: int,
++    iterations: int,
++    repeats: int,
++    l2_scrub_mib: int,
++) -> None:
++    """Time only the default path from an independent upstream/dev build."""
+ 
+     print(f"GPU: {torch.cuda.get_device_name()}")
+-    print(f"Extension: {flash_kda_C.__file__}")
+-    print(f"BF16 state in/out: {args.state}")
+-    print("B T H | original_ms split_ms speedup exact")
++    print("FP32 state in/out: True")
++    cache_mode = "steady" if l2_scrub_mib == 0 else f"cold ({l2_scrub_mib} MiB read)"
++    print(f"Cache mode: {cache_mode}")
++    _print_case_legend()
++    print("Latency is the median in microseconds (us).")
++    print("Timing uses CUDA events; torch milliseconds are converted to us.")
++    case_width = max(20, *(len(case.name) for case in cases))
++    header = f"{'case':<{case_width}}  {'upstream original us':>20}"
++    print(header)
++    print("-" * len(header))
++
++    for index, case in enumerate(cases):
++        inputs = make_inputs(case, seed=42 + index)
++        # Synchronization plus NaN sentinels catches a missing store without
++        # requiring the patched split/cluster schema in this baseline process.
++        inputs.out.fill_(float("nan"))
++        inputs.final_state.fill_(float("nan"))
++        run_variant(inputs, "original")
++        torch.cuda.synchronize()
++        if torch.isnan(inputs.out).any() or torch.isnan(inputs.final_state).any():
++            raise AssertionError(f"{case.name} upstream baseline left NaN outputs")
++
++        timings, graphs, scrub_owners = benchmark_variants(
++            inputs,
++            warmup=warmup,
++            iterations=iterations,
++            repeats=repeats,
++            l2_scrub_mib=l2_scrub_mib,
++            variants=("original",),
++        )
++        median = timings["original"][0]
++        print(f"{case.name:<{case_width}}  {median * 1000:>20.2f}")
++
++        del graphs, scrub_owners, inputs
++        gc.collect()
++        torch.cuda.empty_cache()
+ 
+-    for batch, seqlen, heads in args.cases:
+-        case = make_case(batch, seqlen, heads, args.state)
+-        check_exact(case)
+ 
+-        for _ in range(args.warmup):
+-            run_kernel(case, False)
+-            run_kernel(case, True)
++def assert_case_exact_with_inputs(case: Case, inputs: Inputs) -> None:
++    reference_out, reference_state = _snapshot(inputs, "original")
++    for variant in ("split", "cluster"):
++        actual_out, actual_state = _snapshot(inputs, variant)
++        if not torch.equal(actual_out, reference_out):
++            mismatch = (actual_out != reference_out).sum().item()
++            max_diff = (actual_out.float() - reference_out.float()).abs().max().item()
++            raise AssertionError(
++                f"{case.name} {variant} output mismatch: "
++                f"elements={mismatch}, max_abs={max_diff}"
++            )
++        if not torch.equal(actual_state, reference_state):
++            mismatch = (actual_state != reference_state).sum().item()
++            max_diff = (actual_state - reference_state).abs().max().item()
++            raise AssertionError(
++                f"{case.name} {variant} state mismatch: "
++                f"elements={mismatch}, max_abs={max_diff}"
++            )
++
++
++def run_profile(case: Case, variant: str, launches: int, seed: int) -> None:
++    inputs = make_inputs(case, seed=seed)
++    variants = ("original", "split", "cluster") if variant == "all" else (variant,)
++    print(f"GPU: {torch.cuda.get_device_name()}")
++    print(f"profile case={case.name} variants={','.join(variants)} launches={launches}")
++    for current in variants:
++        print(f"launching variant={current}", flush=True)
++        for _ in range(launches):
++            run_variant(inputs, current)
+         torch.cuda.synchronize()
++        print(f"completed variant={current}", flush=True)
+ 
+-        inner = args.inner or choose_inner(batch, seqlen, heads)
+-        original_times = []
+-        split_times = []
+-        for repeat in range(args.repeats):
+-            # Alternate order to reduce clock and temperature bias.
+-            if repeat % 2 == 0:
+-                original_times.append(timed(case, False, inner))
+-                split_times.append(timed(case, True, inner))
+-            else:
+-                split_times.append(timed(case, True, inner))
+-                original_times.append(timed(case, False, inner))
+-
+-        original_ms = statistics.median(original_times)
+-        split_ms = statistics.median(split_times)
+-        print(
+-            batch,
+-            seqlen,
+-            heads,
+-            "|",
+-            f"{original_ms:.5f}",
+-            f"{split_ms:.5f}",
+-            f"{original_ms / split_ms:.3f}x",
+-            "yes",
+-            flush=True,
++
++def parse_args() -> argparse.Namespace:
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument(
++        "--mode",
++        choices=("smoke", "cases", "profile", "upstream-baseline"),
++        default="smoke",
++    )
++    parser.add_argument(
++        "--case",
++        action="append",
++        default=[],
++        help="case name to run; repeat to select more than one",
++    )
++    parser.add_argument("--list-cases", action="store_true")
++    parser.add_argument("--warmup", type=int, default=10)
++    parser.add_argument("--iterations", type=int, default=50)
++    parser.add_argument("--repeats", type=int, default=6)
++    parser.add_argument(
++        "--l2-scrub-mib",
++        type=int,
++        default=DEFAULT_L2_SCRUB_MIB,
++        help=(
++            "read-only eviction buffer before each timed graph replay, in MiB; "
++            "use 0 for steady-state timing without cache scrubbing"
++        ),
++    )
++    parser.add_argument(
++        "--profile-variant",
++        choices=("original", "split", "cluster", "all"),
++        default="all",
++    )
++    parser.add_argument("--profile-launches", type=int, default=1)
++    parser.add_argument("--seed", type=int, default=42)
++    return parser.parse_args()
++
++
++def main() -> None:
++    args = parse_args()
++    if args.list_cases:
++        for case in DEFAULT_CASES:
++            print(case.name)
++        return
++
++    if (
++        min(args.warmup, args.iterations, args.repeats) < 0
++        or args.iterations == 0
++        or args.repeats == 0
++        or args.l2_scrub_mib < 0
++    ):
++        raise ValueError(
++            "warmup and l2-scrub-mib must be non-negative; "
++            "iterations and repeats must be positive"
+         )
+ 
+-        del case
+-        gc.collect()
+-        torch.cuda.empty_cache()
++    if args.mode == "smoke":
++        cases = _select_cases(SMOKE_CASES, args.case)
++        run_cases(
++            cases,
++            warmup=min(args.warmup, 2),
++            iterations=min(args.iterations, 5),
++            repeats=min(args.repeats, 2),
++            l2_scrub_mib=args.l2_scrub_mib,
++        )
++        return
++
++    cases = _select_cases(DEFAULT_CASES, args.case)
++    if args.mode == "upstream-baseline":
++        run_upstream_baseline_cases(
++            cases,
++            args.warmup,
++            args.iterations,
++            args.repeats,
++            args.l2_scrub_mib,
++        )
++        return
++
++    if args.mode == "profile":
++        if len(cases) != 1:
++            raise ValueError("profile mode requires exactly one --case")
++        if args.profile_launches <= 0:
++            raise ValueError("--profile-launches must be positive")
++        run_profile(cases[0], args.profile_variant, args.profile_launches, args.seed)
++        return
++
++    run_cases(
++        cases,
++        args.warmup,
++        args.iterations,
++        args.repeats,
++        args.l2_scrub_mib,
++    )
+ 
+ 
+ if __name__ == "__main__":
+-    main()
++    with torch.inference_mode():
++        main()

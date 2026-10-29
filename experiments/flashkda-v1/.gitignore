@@ -1,0 +1,18 @@
+build/**
+.cache/**
+*.egg-info/**
+*.so
+*.ncu-rep
+*.nsys-rep
+.vscode/**
+**/__pycache__/**
+.clangd
+plot*.png
+
+# Standalone CUDA profiling/inspection build products.
+/bc
+/bc.ptx
+/bc.sass
+/ldmatrix_cycle_bench
+/ldmatrix_nmajor_trans_case
+/ldmatrix_trans_case

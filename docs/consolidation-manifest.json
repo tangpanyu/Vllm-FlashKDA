@@ -1,0 +1,757 @@
+{
+  "date": "2026-10-29",
+  "legacy_head": "f302cd6baf13827384c60e2f799608f9727126b4",
+  "current_head": "0c8a2d0550e5b847af0041f8533cd00318721749",
+  "cutlass_head": "5c149f52a436782210263fb2f19b354443a61c6a",
+  "files": [
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/.clangd",
+      "destination": "experiments/flashkda-v1/.clangd",
+      "sha256": "cdc657814d94fbf752b1af63a80f48a601cd0288fcc2fb4f106fd3cdbf1d7399",
+      "bytes": 611,
+      "action": "copied",
+      "destination_sha256": "cdc657814d94fbf752b1af63a80f48a601cd0288fcc2fb4f106fd3cdbf1d7399"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/.clangd.template",
+      "destination": "experiments/flashkda-v1/.clangd.template",
+      "sha256": "fde5d9c817d5da33d8e74a1b9b7f2a72f98490feb2601c9f5771f24ba4bc431f",
+      "bytes": 547,
+      "action": "copied",
+      "destination_sha256": "fde5d9c817d5da33d8e74a1b9b7f2a72f98490feb2601c9f5771f24ba4bc431f"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/.gitignore",
+      "destination": "experiments/flashkda-v1/.gitignore",
+      "sha256": "16dc7a1047c489ab8734ae4ab9abef2d1b94fd4a331dfd6820a9fe25f58b2ae4",
+      "bytes": 254,
+      "action": "copied",
+      "destination_sha256": "16dc7a1047c489ab8734ae4ab9abef2d1b94fd4a331dfd6820a9fe25f58b2ae4"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/.gitmodules",
+      "destination": "experiments/flashkda-v1/.gitmodules",
+      "sha256": "0780ba817a8113c89fbc3a07376f4d730f0e3529358c68e4d9a3d23382b71132",
+      "bytes": 83,
+      "action": "copied",
+      "destination_sha256": "0780ba817a8113c89fbc3a07376f4d730f0e3529358c68e4d9a3d23382b71132"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/01_dense_gemm.py",
+      "destination": "experiments/flashkda-v1/01_dense_gemm.py",
+      "sha256": "7a09f316e478f1dd4166f447b8efd772a0c84b8d0bf27d104944257fa47102f8",
+      "bytes": 19061,
+      "action": "copied",
+      "destination_sha256": "7a09f316e478f1dd4166f447b8efd772a0c84b8d0bf27d104944257fa47102f8"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/BENCHMARK_GB200.md",
+      "destination": "experiments/flashkda-v1/BENCHMARK_GB200.md",
+      "sha256": "3666aa7fe52f2be92f03b5b8d488bd1cdffb8d7ea15aa8463b6c3f47a3fe80f5",
+      "bytes": 1577,
+      "action": "copied",
+      "destination_sha256": "3666aa7fe52f2be92f03b5b8d488bd1cdffb8d7ea15aa8463b6c3f47a3fe80f5"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/BENCHMARK_H20.md",
+      "destination": "experiments/flashkda-v1/BENCHMARK_H20.md",
+      "sha256": "2d49c9cdd66141e514de5a8d8e676749875a32d77db0c0d99286f13372ce7702",
+      "bytes": 1528,
+      "action": "copied",
+      "destination_sha256": "2d49c9cdd66141e514de5a8d8e676749875a32d77db0c0d99286f13372ce7702"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/LICENSE",
+      "destination": "experiments/flashkda-v1/LICENSE",
+      "sha256": "05f1750624d6ab5f6dd59dea79e3156f4fec6b3065c94aeeaf265df677f9e6e8",
+      "bytes": 1067,
+      "action": "copied",
+      "destination_sha256": "05f1750624d6ab5f6dd59dea79e3156f4fec6b3065c94aeeaf265df677f9e6e8"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/README.md",
+      "destination": "experiments/flashkda-v1/README.md",
+      "sha256": "527ac1823b4337e6bee755d29b282ad643a8b203c2d27d2b30bb6e7129b35eed",
+      "bytes": 5050,
+      "action": "copied",
+      "destination_sha256": "527ac1823b4337e6bee755d29b282ad643a8b203c2d27d2b30bb6e7129b35eed"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/bc",
+      "destination": "experiments/flashkda-v1/bc",
+      "sha256": "9ba896c462d7aeebfbd0fd653144d2b4ebb6e5d9f0045f2819438dd4da2cf6e1",
+      "bytes": 1056824,
+      "action": "copied",
+      "destination_sha256": "9ba896c462d7aeebfbd0fd653144d2b4ebb6e5d9f0045f2819438dd4da2cf6e1"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/bc.cu",
+      "destination": "experiments/flashkda-v1/bc.cu",
+      "sha256": "8de9efcc16bcaa3da28a4dcea1193d3b86542272ee4ab25647c2ad5f2da3e3a5",
+      "bytes": 3299,
+      "action": "copied",
+      "destination_sha256": "8de9efcc16bcaa3da28a4dcea1193d3b86542272ee4ab25647c2ad5f2da3e3a5"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/bc.ptx",
+      "destination": "experiments/flashkda-v1/bc.ptx",
+      "sha256": "00d3d9c8aa22b887761bfd63b10a66d0957b972b4536e8fc890d538c57599ea1",
+      "bytes": 7022,
+      "action": "copied",
+      "destination_sha256": "00d3d9c8aa22b887761bfd63b10a66d0957b972b4536e8fc890d538c57599ea1"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/bc.sass",
+      "destination": "experiments/flashkda-v1/bc.sass",
+      "sha256": "178a307e03aa487c72b461218b09c5a70d0db25d3b3eb5f7a224eb3cd4b2e0de",
+      "bytes": 24445,
+      "action": "copied",
+      "destination_sha256": "178a307e03aa487c72b461218b09c5a70d0db25d3b3eb5f7a224eb3cd4b2e0de"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/compile_commands.json",
+      "destination": "experiments/flashkda-v1/compile_commands.json",
+      "sha256": "e5b1656424aa41c6b57cc6b6a2eec52fa58a7885f4e0e751e434763f29a61e4c",
+      "bytes": 8390,
+      "action": "copied",
+      "destination_sha256": "e5b1656424aa41c6b57cc6b6a2eec52fa58a7885f4e0e751e434763f29a61e4c"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/config.yaml",
+      "destination": "experiments/flashkda-v1/config.yaml",
+      "sha256": "e5d87a5d9f6303168113b1ac6180b3445376e857ca898267eea6625e4ed0b8b2",
+      "bytes": 1858,
+      "action": "copied",
+      "destination_sha256": "e5d87a5d9f6303168113b1ac6180b3445376e857ca898267eea6625e4ed0b8b2"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/flash_kda_C.cpython-312-x86_64-linux-gnu.so",
+      "destination": "experiments/flashkda-v1/flash_kda_C.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "22fcbf29d0b0c7e56ae850af4df06e866e001c6b2152e1665d3ba379b524e5b1",
+      "bytes": 4217360,
+      "action": "copied",
+      "destination_sha256": "22fcbf29d0b0c7e56ae850af4df06e866e001c6b2152e1665d3ba379b524e5b1"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/ldmatrix_cycle_bench",
+      "destination": "experiments/flashkda-v1/ldmatrix_cycle_bench",
+      "sha256": "ba374a34d15d0509df90a679307d766d0e7178951b4c7531fa839b110bd428ba",
+      "bytes": 1049824,
+      "action": "copied",
+      "destination_sha256": "ba374a34d15d0509df90a679307d766d0e7178951b4c7531fa839b110bd428ba"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/ldmatrix_cycle_bench.cu",
+      "destination": "experiments/flashkda-v1/ldmatrix_cycle_bench.cu",
+      "sha256": "81785a74e334c30a7090374f2462b4731a969ad0838e92d4907780ca2cb519d8",
+      "bytes": 6333,
+      "action": "copied",
+      "destination_sha256": "81785a74e334c30a7090374f2462b4731a969ad0838e92d4907780ca2cb519d8"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/ldmatrix_nmajor_trans_case",
+      "destination": "experiments/flashkda-v1/ldmatrix_nmajor_trans_case",
+      "sha256": "da1d1cb69fd700ee12c89c771627a2490b50e287761cfa1a9bc3ca4cced95458",
+      "bytes": 1027968,
+      "action": "copied",
+      "destination_sha256": "da1d1cb69fd700ee12c89c771627a2490b50e287761cfa1a9bc3ca4cced95458"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/ldmatrix_nmajor_trans_case.cu",
+      "destination": "experiments/flashkda-v1/ldmatrix_nmajor_trans_case.cu",
+      "sha256": "94899680185086d57f8b186a18ed7d792d6c00558ad48baf779c2eb9aa7a080c",
+      "bytes": 3950,
+      "action": "copied",
+      "destination_sha256": "94899680185086d57f8b186a18ed7d792d6c00558ad48baf779c2eb9aa7a080c"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/ldmatrix_trans_case",
+      "destination": "experiments/flashkda-v1/ldmatrix_trans_case",
+      "sha256": "baad62d105eed6e727af806829278c007291dedd99ecb381f5149bd377e183a7",
+      "bytes": 1032104,
+      "action": "copied",
+      "destination_sha256": "baad62d105eed6e727af806829278c007291dedd99ecb381f5149bd377e183a7"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/ldmatrix_trans_case.cu",
+      "destination": "experiments/flashkda-v1/ldmatrix_trans_case.cu",
+      "sha256": "0d220b4d346b2ec4cb1e759690f998d96869e0e33915ee755a0ff535517da2d0",
+      "bytes": 5204,
+      "action": "copied",
+      "destination_sha256": "0d220b4d346b2ec4cb1e759690f998d96869e0e33915ee755a0ff535517da2d0"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/modal_flashkda.py",
+      "destination": "experiments/flashkda-v1/modal_flashkda.py",
+      "sha256": "931a2de54eefbad41b9df88a026d80268923aa27e6bd0d5822ba200daee2e525",
+      "bytes": 10612,
+      "action": "copied",
+      "destination_sha256": "931a2de54eefbad41b9df88a026d80268923aa27e6bd0d5822ba200daee2e525"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/plot.png",
+      "destination": "experiments/flashkda-v1/plot.png",
+      "sha256": "691c43a67f96470faec79bc1d1a59e2c9ab96d48e21d5b3fce16eb7fc45d3d31",
+      "bytes": 2441854,
+      "action": "copied",
+      "destination_sha256": "691c43a67f96470faec79bc1d1a59e2c9ab96d48e21d5b3fce16eb7fc45d3d31"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/plot_varlen.png",
+      "destination": "experiments/flashkda-v1/plot_varlen.png",
+      "sha256": "489151787c3b9452f35e310c408564cd486c37a01994efc168a932bd1c750cef",
+      "bytes": 2692636,
+      "action": "copied",
+      "destination_sha256": "489151787c3b9452f35e310c408564cd486c37a01994efc168a932bd1c750cef"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/pr.md",
+      "destination": "experiments/flashkda-v1/pr.md",
+      "sha256": "46243baf4016c33985ad6f8cb6c2ed73d7602cd2c7690d26a6ef86fbcc18bfc9",
+      "bytes": 7021,
+      "action": "merged_or_annotated",
+      "destination_sha256": "38c2739c694275c8f5d2de0cffda03d3ea7887c6ca2f5d521457b55f2d34b8d6"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/setup.py",
+      "destination": "experiments/flashkda-v1/setup.py",
+      "sha256": "720b7eb539cc4364c5b01afe20b913000818f94c2fa2969fa1908ca75da70148",
+      "bytes": 3581,
+      "action": "adapted_for_shared_cutlass_and_archived_version",
+      "destination_sha256": "457a39e64c46a6c44e0ee160c6160af0833912d8a3d8d9bf3d3d307bcb0f89d9"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/setup_clangd.sh",
+      "destination": "experiments/flashkda-v1/setup_clangd.sh",
+      "sha256": "976281433741fdd03e7d16c0d8d176b17f7a5d4aedf86bc57514a8108241f7eb",
+      "bytes": 301,
+      "action": "copied",
+      "destination_sha256": "976281433741fdd03e7d16c0d8d176b17f7a5d4aedf86bc57514a8108241f7eb"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/.vscode/settings.json",
+      "destination": "experiments/flashkda-v1/.vscode/settings.json",
+      "sha256": "4f813045f8686a3b2c7d25699af5be8c3885a8ddc22354e9fa7ae86967574272",
+      "bytes": 451,
+      "action": "copied",
+      "destination_sha256": "4f813045f8686a3b2c7d25699af5be8c3885a8ddc22354e9fa7ae86967574272"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/csrc/flash_kda.cpp",
+      "destination": "experiments/flashkda-v1/csrc/flash_kda.cpp",
+      "sha256": "46810bec7a703e19d519abf523c3e700e6a633f6976f40730f1062f7b0ad35bd",
+      "bytes": 10899,
+      "action": "copied",
+      "destination_sha256": "46810bec7a703e19d519abf523c3e700e6a633f6976f40730f1062f7b0ad35bd"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/csrc/fwd.h",
+      "destination": "experiments/flashkda-v1/csrc/fwd.h",
+      "sha256": "b2d9a708ea15e41da98b5398973c75d785827ed12bc6683d05249f7896fa4a5f",
+      "bytes": 788,
+      "action": "copied",
+      "destination_sha256": "b2d9a708ea15e41da98b5398973c75d785827ed12bc6683d05249f7896fa4a5f"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/csrc/smxx/fwd_kernel1.cuh",
+      "destination": "experiments/flashkda-v1/csrc/smxx/fwd_kernel1.cuh",
+      "sha256": "0b311dbcc2e23198322e4831db196ddd23b7fdd8b2abbfc280e43ece43c7f4eb",
+      "bytes": 29297,
+      "action": "copied",
+      "destination_sha256": "0b311dbcc2e23198322e4831db196ddd23b7fdd8b2abbfc280e43ece43c7f4eb"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/csrc/smxx/fwd_kernel2.cuh",
+      "destination": "experiments/flashkda-v1/csrc/smxx/fwd_kernel2.cuh",
+      "sha256": "cef71c13f41a37ea4b373664473107d9de6d3b48d3c3326d6d9a0c0eab6f1e5a",
+      "bytes": 55087,
+      "action": "copied",
+      "destination_sha256": "cef71c13f41a37ea4b373664473107d9de6d3b48d3c3326d6d9a0c0eab6f1e5a"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/csrc/smxx/fwd_kernel2_1.cuh",
+      "destination": "experiments/flashkda-v1/csrc/smxx/fwd_kernel2_1.cuh",
+      "sha256": "8b88d94a2befd4976124c1ab6233b2dfc2a4e61aeb7827147d367b4739793ea6",
+      "bytes": 44538,
+      "action": "copied",
+      "destination_sha256": "8b88d94a2befd4976124c1ab6233b2dfc2a4e61aeb7827147d367b4739793ea6"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/csrc/smxx/fwd_launch.cu",
+      "destination": "experiments/flashkda-v1/csrc/smxx/fwd_launch.cu",
+      "sha256": "d8b16f18b84dc6d7f30359a7c0bc8e503c0f13894af423091f9c274fc8acbd00",
+      "bytes": 19015,
+      "action": "copied",
+      "destination_sha256": "d8b16f18b84dc6d7f30359a7c0bc8e503c0f13894af423091f9c274fc8acbd00"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/csrc/smxx/tma_multicast_compat.cuh",
+      "destination": "experiments/flashkda-v1/csrc/smxx/tma_multicast_compat.cuh",
+      "sha256": "60be729d7e4ad84e939dbf69f7e0ca3e4d6b2940936d97e8c5a4dd6b598cf9e0",
+      "bytes": 6132,
+      "action": "copied",
+      "destination_sha256": "60be729d7e4ad84e939dbf69f7e0ca3e4d6b2940936d97e8c5a4dd6b598cf9e0"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/csrc/smxx/utils.cuh",
+      "destination": "experiments/flashkda-v1/csrc/smxx/utils.cuh",
+      "sha256": "610b78d603c5899dea07d6d8cda878381edc3232626f6f659ec5d638f68590de",
+      "bytes": 13119,
+      "action": "copied",
+      "destination_sha256": "610b78d603c5899dea07d6d8cda878381edc3232626f6f659ec5d638f68590de"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/benchmarks/bench.sh",
+      "destination": "experiments/flashkda-v1/benchmarks/bench.sh",
+      "sha256": "76c27ee73b97c94b290d4f2baace414bca8491478c1c87d4a0b82b0698ef43fc",
+      "bytes": 101,
+      "action": "copied",
+      "destination_sha256": "76c27ee73b97c94b290d4f2baace414bca8491478c1c87d4a0b82b0698ef43fc"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/benchmarks/bench_fwd.py",
+      "destination": "experiments/flashkda-v1/benchmarks/bench_fwd.py",
+      "sha256": "005f901383e05c0e93bc8a0e6afce3b5e0e79789fedb0c4492de90e0c872dd95",
+      "bytes": 6068,
+      "action": "copied",
+      "destination_sha256": "005f901383e05c0e93bc8a0e6afce3b5e0e79789fedb0c4492de90e0c872dd95"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/benchmarks/generate_benchmark_md.py",
+      "destination": "experiments/flashkda-v1/benchmarks/generate_benchmark_md.py",
+      "sha256": "eb55333d15a1e01c5c380699a2f3d867e424ab707179ca996b368f0335846f9c",
+      "bytes": 10281,
+      "action": "copied",
+      "destination_sha256": "eb55333d15a1e01c5c380699a2f3d867e424ab707179ca996b368f0335846f9c"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/benchmarks/ncu.sh",
+      "destination": "experiments/flashkda-v1/benchmarks/ncu.sh",
+      "sha256": "35a96a07f3a2101eaf6ef399c809edb93f4216b2c063ece658b9185579422912",
+      "bytes": 585,
+      "action": "copied",
+      "destination_sha256": "35a96a07f3a2101eaf6ef399c809edb93f4216b2c063ece658b9185579422912"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/tests/bench_vsplit.py",
+      "destination": "experiments/flashkda-v1/tests/bench_vsplit.py",
+      "sha256": "905fc2b8ed88ef2572764d550e93acb09b8bdd0c5740940bcdb289776f4df2aa",
+      "bytes": 20882,
+      "action": "copied",
+      "destination_sha256": "905fc2b8ed88ef2572764d550e93acb09b8bdd0c5740940bcdb289776f4df2aa"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/tests/conftest.py",
+      "destination": "experiments/flashkda-v1/tests/conftest.py",
+      "sha256": "93f6f88702be9d199ba7035c16eeeb9ed43e638a426cdd5ad87b90c478fc51cc",
+      "bytes": 431,
+      "action": "copied",
+      "destination_sha256": "93f6f88702be9d199ba7035c16eeeb9ed43e638a426cdd5ad87b90c478fc51cc"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/tests/run_test_full.sh",
+      "destination": "experiments/flashkda-v1/tests/run_test_full.sh",
+      "sha256": "a5a82a1d7f18d3b24c46b666ebdeb91fb12a2189ce73dbfc62c2f3f97a513141",
+      "bytes": 125,
+      "action": "copied",
+      "destination_sha256": "a5a82a1d7f18d3b24c46b666ebdeb91fb12a2189ce73dbfc62c2f3f97a513141"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/tests/test.sh",
+      "destination": "experiments/flashkda-v1/tests/test.sh",
+      "sha256": "b051c35ff3610bec3097211424e777b6524c5402b8e63391df12a799999b8a04",
+      "bytes": 104,
+      "action": "copied",
+      "destination_sha256": "b051c35ff3610bec3097211424e777b6524c5402b8e63391df12a799999b8a04"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/tests/test_fwd.py",
+      "destination": "experiments/flashkda-v1/tests/test_fwd.py",
+      "sha256": "49b012b4109e7c3d0e7c4505b4a52372f7a4a64bc7199de48882daa3ef0fb090",
+      "bytes": 18330,
+      "action": "copied",
+      "destination_sha256": "49b012b4109e7c3d0e7c4505b4a52372f7a4a64bc7199de48882daa3ef0fb090"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/tests/test_fwd_full.py",
+      "destination": "experiments/flashkda-v1/tests/test_fwd_full.py",
+      "sha256": "e3be77c08996c0af352243af18b20de2153ad003c9d9f675daa53534a48a27cb",
+      "bytes": 11375,
+      "action": "copied",
+      "destination_sha256": "e3be77c08996c0af352243af18b20de2153ad003c9d9f675daa53534a48a27cb"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/tests/test_fwd_simple.py",
+      "destination": "experiments/flashkda-v1/tests/test_fwd_simple.py",
+      "sha256": "5edb49ebc248860eec0067429118c44db499ed81c2243ef6c9ecad495d60067f",
+      "bytes": 1521,
+      "action": "copied",
+      "destination_sha256": "5edb49ebc248860eec0067429118c44db499ed81c2243ef6c9ecad495d60067f"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/tests/test_vsplit_cluster.py",
+      "destination": "experiments/flashkda-v1/tests/test_vsplit_cluster.py",
+      "sha256": "7ea1158f65f028dcbc67e271e1d0de8ae0321cb012479eecc5538c1e57371359",
+      "bytes": 2549,
+      "action": "copied",
+      "destination_sha256": "7ea1158f65f028dcbc67e271e1d0de8ae0321cb012479eecc5538c1e57371359"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/tests/torch_ref.py",
+      "destination": "experiments/flashkda-v1/tests/torch_ref.py",
+      "sha256": "645bb4faa571ab67312ed9da8d41a971a6b18b00908905a6d1745d17ba6d8111",
+      "bytes": 10713,
+      "action": "copied",
+      "destination_sha256": "645bb4faa571ab67312ed9da8d41a971a6b18b00908905a6d1745d17ba6d8111"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/flash_kda/__init__.py",
+      "destination": "experiments/flashkda-v1/flash_kda/__init__.py",
+      "sha256": "5e673bb9d63435a447c1f89206c81fa14248b1646041c65191f2ce425c714ca9",
+      "bytes": 2611,
+      "action": "copied",
+      "destination_sha256": "5e673bb9d63435a447c1f89206c81fa14248b1646041c65191f2ce425c714ca9"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/docs/20260420-flashkda-v1-deep-dive.md",
+      "destination": "docs/20260420-flashkda-v1-deep-dive.md",
+      "sha256": "58c4cc40aeed3f965e43a12a8b2852b8b68b9ce9ecf2ca15f571a68c6d452c8c",
+      "bytes": 4284,
+      "action": "deduplicated",
+      "destination_sha256": "58c4cc40aeed3f965e43a12a8b2852b8b68b9ce9ecf2ca15f571a68c6d452c8c"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/docs/CP之中.md",
+      "destination": "docs/CP之中.md",
+      "sha256": "d74f162f3211873fef1333b157b9a0ce7c67ca348ae02741acb4e24b35df9df3",
+      "bytes": 7108,
+      "action": "copied",
+      "destination_sha256": "d74f162f3211873fef1333b157b9a0ce7c67ca348ae02741acb4e24b35df9df3"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/docs/FlashKDA Kernel 讲解.md",
+      "destination": "docs/FlashKDA Kernel 讲解.md",
+      "sha256": "823e16724d02e5874b33d9ce0e80f5109753c799f73f482452dc0a8619be3f8e",
+      "bytes": 18575,
+      "action": "merged_or_annotated",
+      "destination_sha256": "950e1c9e79312c3cd6962b3175b145df882735bd61924367aa7a00812355736f"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/docs/FlashKDA优化计划.md",
+      "destination": "docs/FlashKDA优化计划.md",
+      "sha256": "1b336675050cac4e20b91c066fafa875b19d06a951ae2fe2de55a09ba8df8ec0",
+      "bytes": 17530,
+      "action": "merged_or_annotated",
+      "destination_sha256": "85481c32568f145dd4ae980ccc040941a2ff6ac6aa815cc96454887c2aa064da"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/docs/KDA Kernel 简化版.md",
+      "destination": "docs/KDA Kernel 简化版.md",
+      "sha256": "9a3b74695117b2e89ac81c822d21c72f74f64167b8c40f6a9b0f8e2cce6cecc8",
+      "bytes": 26808,
+      "action": "copied",
+      "destination_sha256": "9a3b74695117b2e89ac81c822d21c72f74f64167b8c40f6a9b0f8e2cce6cecc8"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/docs/assets/compare_with_fla.png",
+      "destination": "docs/assets/compare_with_fla.png",
+      "sha256": "522f5b09c21acd32695e76dcc19f59e19175224851f378b537602db72b02fdbf",
+      "bytes": 2311127,
+      "action": "deduplicated",
+      "destination_sha256": "522f5b09c21acd32695e76dcc19f59e19175224851f378b537602db72b02fdbf"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/docs/k2-vsplit-cluster-multicast.md",
+      "destination": "docs/k2-vsplit-cluster-multicast.md",
+      "sha256": "148f9a9dfa070af2de49605b583f0c593a0c17de7549627e543a93b189cd037c",
+      "bytes": 9419,
+      "action": "merged_or_annotated",
+      "destination_sha256": "2ab36449d8a2cca2e4eac8f509fbb05801f202921bcfbb808305b422a545d060"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/docs/kernel_walkthrough.md",
+      "destination": "docs/kernel_walkthrough.md",
+      "sha256": "60251f29155e41d3d934401ff774f1bf0df53247cb307148aebfe451843f760f",
+      "bytes": 13671,
+      "action": "merged_or_annotated",
+      "destination_sha256": "ce6998333c94219fc8f771306866ac249ba8d4968352b070505b2deb28520e83"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/docs/ncu-kernel-profiling-guide.md",
+      "destination": "docs/ncu-kernel-profiling-guide.md",
+      "sha256": "a5d50f39197aedf365c35aad58c5bf7e2da6396ef6b06167c298df02c4bcf51c",
+      "bytes": 46719,
+      "action": "merged_or_annotated",
+      "destination_sha256": "cbfce4e17b4ab6f73fd8e6b67aabfc5dbccb7210a9e9e20e58f894ec5f194f34"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/INDEX.md",
+      "destination": "ncu-reports/INDEX.md",
+      "sha256": "24aa0c80799b5b181b808cffd604042c883108a75ccbf5dcc16a6a4caff0fdbe",
+      "bytes": 5890,
+      "action": "merged_or_annotated",
+      "destination_sha256": "9732c7a5e1b9dce054478bbb241804a1c6c9ab189c3eca0f6f83bd4f86954daa"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/flashkda/h100__original-vsplit__b8-t2048-h96__full.ncu-rep",
+      "destination": "ncu-reports/flashkda/h100__original-vsplit__b8-t2048-h96__full.ncu-rep",
+      "sha256": "df5a0fdace65529904d9e48c6332113d628f8748d36c8fa65947193d552aa60a",
+      "bytes": 59136442,
+      "action": "copied",
+      "destination_sha256": "df5a0fdace65529904d9e48c6332113d628f8748d36c8fa65947193d552aa60a"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/flashkda/rtx5060ti__original-vsplit__b1-t2048-h32__full.ncu-rep",
+      "destination": "ncu-reports/flashkda/rtx5060ti__original-vsplit__b1-t2048-h32__full.ncu-rep",
+      "sha256": "992dad046aa2fbbd52f8f7baaad9fc3e2aedc58390aeaecd779505435b3f0536",
+      "bytes": 16067798,
+      "action": "copied",
+      "destination_sha256": "992dad046aa2fbbd52f8f7baaad9fc3e2aedc58390aeaecd779505435b3f0536"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/flashkda/rtx5060ti__vsplit__b1-t2048-h32__full.ncu-rep",
+      "destination": "ncu-reports/flashkda/rtx5060ti__vsplit__b1-t2048-h32__full.ncu-rep",
+      "sha256": "e495c20f5cf3a73b14c2d0ab6b42a8c2f258daa0ee2b9c1d6614bcf1541092a4",
+      "bytes": 19134904,
+      "action": "copied",
+      "destination_sha256": "e495c20f5cf3a73b14c2d0ab6b42a8c2f258daa0ee2b9c1d6614bcf1541092a4"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/flashkda/rtx5060ti__vsplit__b1-t2048-h32__launch-occupancy-sol.ncu-rep",
+      "destination": "ncu-reports/flashkda/rtx5060ti__vsplit__b1-t2048-h32__launch-occupancy-sol.ncu-rep",
+      "sha256": "453269490f474c774549591287d29cfee2bf245f67c9857129499e2249e63206",
+      "bytes": 12184224,
+      "action": "copied",
+      "destination_sha256": "453269490f474c774549591287d29cfee2bf245f67c9857129499e2249e63206"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/flashkda/rtx5060ti__vsplit__b1-t2048-h32__launchstats.ncu-rep",
+      "destination": "ncu-reports/flashkda/rtx5060ti__vsplit__b1-t2048-h32__launchstats.ncu-rep",
+      "sha256": "1947d7b6f03201a0f51e52e8f4043e0cfe30dc5fcd7ced374ada110ee5dd387f",
+      "bytes": 12135212,
+      "action": "copied",
+      "destination_sha256": "1947d7b6f03201a0f51e52e8f4043e0cfe30dc5fcd7ced374ada110ee5dd387f"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/microbench/rtx5060ti__scalar-bf16__grid1-block32__full.ncu-rep",
+      "destination": "ncu-reports/microbench/rtx5060ti__scalar-bf16__grid1-block32__full.ncu-rep",
+      "sha256": "15e67b876b36993cff4c176500a008e3eea5dd885615feb367ba6521b619d48d",
+      "bytes": 859492,
+      "action": "copied",
+      "destination_sha256": "15e67b876b36993cff4c176500a008e3eea5dd885615feb367ba6521b619d48d"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/microbench/rtx5060ti__shared-32way-conflict__grid1024-block32__full.ncu-rep",
+      "destination": "ncu-reports/microbench/rtx5060ti__shared-32way-conflict__grid1024-block32__full.ncu-rep",
+      "sha256": "66b734e317c12bd034a8120e5bdec0a2faef1c8ff2770fde4c1f7b352b9fdd94",
+      "bytes": 1504901,
+      "action": "copied",
+      "destination_sha256": "66b734e317c12bd034a8120e5bdec0a2faef1c8ff2770fde4c1f7b352b9fdd94"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/microbench/rtx5060ti__shared-no-conflict__grid1024-block32__full.ncu-rep",
+      "destination": "ncu-reports/microbench/rtx5060ti__shared-no-conflict__grid1024-block32__full.ncu-rep",
+      "sha256": "2ed3c28cfc3df53e0497fd19d21e83770c5035b596635c02f1368568779b59e4",
+      "bytes": 1169936,
+      "action": "copied",
+      "destination_sha256": "2ed3c28cfc3df53e0497fd19d21e83770c5035b596635c02f1368568779b59e4"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/vllm-flashkda/h100__baseline-current-toolchain__n16-t8192-h96__cache-none-full.ncu-rep",
+      "destination": "ncu-reports/vllm-flashkda/h100__baseline-current-toolchain__n16-t8192-h96__cache-none-full.ncu-rep",
+      "sha256": "caf91ea0162561a2f3917119b0e2171e042f0d705510d81dcf3dd9e13b925278",
+      "bytes": 77089566,
+      "action": "copied",
+      "destination_sha256": "caf91ea0162561a2f3917119b0e2171e042f0d705510d81dcf3dd9e13b925278"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/vllm-flashkda/h100__original-warp6split-warp5cluster__n1-t8192-h96__pre-perwarp-full.ncu-rep",
+      "destination": "ncu-reports/vllm-flashkda/h100__original-warp6split-warp5cluster__n1-t8192-h96__pre-perwarp-full.ncu-rep",
+      "sha256": "0dcd0f8f41c27c78053323d8f0127bc9051df2044b8401fa0ba27e3dba740678",
+      "bytes": 59554491,
+      "action": "copied",
+      "destination_sha256": "0dcd0f8f41c27c78053323d8f0127bc9051df2044b8401fa0ba27e3dba740678"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/vllm-flashkda/h100__original-warp6split-warp5cluster__n4-t2048-h12__pre-perwarp-full.ncu-rep",
+      "destination": "ncu-reports/vllm-flashkda/h100__original-warp6split-warp5cluster__n4-t2048-h12__pre-perwarp-full.ncu-rep",
+      "sha256": "86721698edd962f48a42adc0d259d183f47f447374b053a2d3fbce4302415466",
+      "bytes": 37478956,
+      "action": "copied",
+      "destination_sha256": "86721698edd962f48a42adc0d259d183f47f447374b053a2d3fbce4302415466"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/vllm-flashkda/h100__original__n16-t8192-h96__cache-all-full.ncu-rep",
+      "destination": "ncu-reports/vllm-flashkda/h100__original__n16-t8192-h96__cache-all-full.ncu-rep",
+      "sha256": "e41b6f24374569bbaeb731adc1c83ecfc5c239212795c83c5de68a37fb3d0615",
+      "bytes": 73999232,
+      "action": "copied",
+      "destination_sha256": "e41b6f24374569bbaeb731adc1c83ecfc5c239212795c83c5de68a37fb3d0615"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/vllm-flashkda/h100__packed-tma__n16-t8192-h96__cache-none-full.ncu-rep",
+      "destination": "ncu-reports/vllm-flashkda/h100__packed-tma__n16-t8192-h96__cache-none-full.ncu-rep",
+      "sha256": "598cad32afb9a9ea41ebcccb6ccb831c897b3ae958cadd5d2e35465f60a81bac",
+      "bytes": 74938723,
+      "action": "copied",
+      "destination_sha256": "598cad32afb9a9ea41ebcccb6ccb831c897b3ae958cadd5d2e35465f60a81bac"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/vllm-flashkda/h100__warp5cluster-final-0c8a2d0__n16-t8192-h96__cache-none-full.ncu-rep",
+      "destination": "ncu-reports/vllm-flashkda/h100__warp5cluster-final-0c8a2d0__n16-t8192-h96__cache-none-full.ncu-rep",
+      "sha256": "9005b80487416faf3c6c3b72d5babb567218ff21af02ba9b5295c2e51c71bd0b",
+      "bytes": 76498744,
+      "action": "copied",
+      "destination_sha256": "9005b80487416faf3c6c3b72d5babb567218ff21af02ba9b5295c2e51c71bd0b"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/vllm-flashkda/h100__warp5cluster-final-0c8a2d0__n16-t8192-h96__launchstats.ncu-rep",
+      "destination": "ncu-reports/vllm-flashkda/h100__warp5cluster-final-0c8a2d0__n16-t8192-h96__launchstats.ncu-rep",
+      "sha256": "0d6ea55091ad72b632e8b1d3dc518e6a13f5daa5ce18979e794d5f2da79769d9",
+      "bytes": 18380334,
+      "action": "copied",
+      "destination_sha256": "0d6ea55091ad72b632e8b1d3dc518e6a13f5daa5ce18979e794d5f2da79769d9"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/vllm-flashkda/h100__warp5cluster__n16-t8192-h96__pre-perwarp-cache-all-full.ncu-rep",
+      "destination": "ncu-reports/vllm-flashkda/h100__warp5cluster__n16-t8192-h96__pre-perwarp-cache-all-full.ncu-rep",
+      "sha256": "2357290bb936c8f0e29ebd6108d7d51342e2f91a0b38833a2c1acd6b2c48d2c8",
+      "bytes": 76118115,
+      "action": "copied",
+      "destination_sha256": "2357290bb936c8f0e29ebd6108d7d51342e2f91a0b38833a2c1acd6b2c48d2c8"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/vllm-flashkda/h100__warp5split-final-0c8a2d0__n16-t8192-h96__cache-none-full.ncu-rep",
+      "destination": "ncu-reports/vllm-flashkda/h100__warp5split-final-0c8a2d0__n16-t8192-h96__cache-none-full.ncu-rep",
+      "sha256": "74114150669ba9eab2b8ce43b25a07811d5f801f645fe5566c766b5b1db1744b",
+      "bytes": 87807483,
+      "action": "copied",
+      "destination_sha256": "74114150669ba9eab2b8ce43b25a07811d5f801f645fe5566c766b5b1db1744b"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/vllm-flashkda/h100__warp5split__n16-t8192-h96__cache-none-full.ncu-rep",
+      "destination": "ncu-reports/vllm-flashkda/h100__warp5split__n16-t8192-h96__cache-none-full.ncu-rep",
+      "sha256": "921a3ee713c418ec6b05ee452d4d3d9d9be0343e9cdc52b139f2bf482b78c9f7",
+      "bytes": 82211074,
+      "action": "copied",
+      "destination_sha256": "921a3ee713c418ec6b05ee452d4d3d9d9be0343e9cdc52b139f2bf482b78c9f7"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/vllm-flashkda/h100__warp6-cluster__n16-t8192-h96__cache-none-full.ncu-rep",
+      "destination": "ncu-reports/vllm-flashkda/h100__warp6-cluster__n16-t8192-h96__cache-none-full.ncu-rep",
+      "sha256": "2f4fce44f260f8c145dc28dece8258a25053176fd88b457541d470a070416a55",
+      "bytes": 82004940,
+      "action": "copied",
+      "destination_sha256": "2f4fce44f260f8c145dc28dece8258a25053176fd88b457541d470a070416a55"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/vllm-flashkda/h100__warp6-original-split-cluster__n1-t8192-h96__full.ncu-rep",
+      "destination": "ncu-reports/vllm-flashkda/h100__warp6-original-split-cluster__n1-t8192-h96__full.ncu-rep",
+      "sha256": "b5c0d1ad2f0658f7cae765f14c64ba2ecd720cd739fecbfe5631fda111c67143",
+      "bytes": 59325783,
+      "action": "copied",
+      "destination_sha256": "b5c0d1ad2f0658f7cae765f14c64ba2ecd720cd739fecbfe5631fda111c67143"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/vllm-flashkda/h100__warp6-original-split-cluster__n4-t2048-h12__full.ncu-rep",
+      "destination": "ncu-reports/vllm-flashkda/h100__warp6-original-split-cluster__n4-t2048-h12__full.ncu-rep",
+      "sha256": "046bce4ca565738c26e260d8fa7fcc63548e94cc94d69001401cad26cf6b4171",
+      "bytes": 37315572,
+      "action": "copied",
+      "destination_sha256": "046bce4ca565738c26e260d8fa7fcc63548e94cc94d69001401cad26cf6b4171"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/vllm-flashkda/h100__warp6split__n16-t8192-h96__cache-none-full.ncu-rep",
+      "destination": "ncu-reports/vllm-flashkda/h100__warp6split__n16-t8192-h96__cache-none-full.ncu-rep",
+      "sha256": "b66100cb6535bdaba76530e3db6213685afb5f7b4424e9cc5ba5c97f7f22c09f",
+      "bytes": 80391016,
+      "action": "copied",
+      "destination_sha256": "b66100cb6535bdaba76530e3db6213685afb5f7b4424e9cc5ba5c97f7f22c09f"
+    },
+    {
+      "source": "/home/tangpanyu/reps/cutlass-cute-sample/FlashKDA Kernel 讲解.md",
+      "destination": "artifacts/import-originals/cutlass-cute-sample/FlashKDA Kernel 讲解.md",
+      "sha256": "09a4451cfe2aefabece9fee0c08ea70013bedcac320f97f8649609c7a40f0014",
+      "bytes": 19365,
+      "action": "copied",
+      "destination_sha256": "09a4451cfe2aefabece9fee0c08ea70013bedcac320f97f8649609c7a40f0014"
+    },
+    {
+      "source": "/home/tangpanyu/reps/cuLA/docs/FlashKDA Kernel 讲解.md",
+      "destination": "artifacts/import-originals/cuLA/FlashKDA Kernel 讲解.md",
+      "sha256": "f6175975742d338f55eedee12c37ed0e73647e9f9e5f0104c8362a543bad24b5",
+      "bytes": 18607,
+      "action": "copied",
+      "destination_sha256": "f6175975742d338f55eedee12c37ed0e73647e9f9e5f0104c8362a543bad24b5"
+    },
+    {
+      "source": "/home/tangpanyu/reps/cuLA/docs/KDA Kernel 简化版.md",
+      "destination": "artifacts/import-originals/cuLA/KDA Kernel 简化版.md",
+      "sha256": "e8eeefb3cdbf0c1389d4cd9e6b2ccf733d9a5491bf6f7dbd21872ca170070254",
+      "bytes": 15821,
+      "action": "copied",
+      "destination_sha256": "e8eeefb3cdbf0c1389d4cd9e6b2ccf733d9a5491bf6f7dbd21872ca170070254"
+    },
+    {
+      "source": "/home/tangpanyu/reps/cutlass-cute-sample/assets/k2-kernel-pipeline.svg",
+      "destination": "docs/assets/k2-kernel-pipeline.svg",
+      "sha256": "d59e7a4cf91b537b4ae4bfb76f7f71024d78d23911fda748378acbf2c7fd6f5a",
+      "bytes": 9532,
+      "action": "copied",
+      "destination_sha256": "d59e7a4cf91b537b4ae4bfb76f7f71024d78d23911fda748378acbf2c7fd6f5a"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/docs/FlashKDA Kernel 讲解.md",
+      "destination": "artifacts/import-originals/FlashKDA/FlashKDA Kernel 讲解.md",
+      "sha256": "823e16724d02e5874b33d9ce0e80f5109753c799f73f482452dc0a8619be3f8e",
+      "bytes": 18575,
+      "action": "copied",
+      "destination_sha256": "823e16724d02e5874b33d9ce0e80f5109753c799f73f482452dc0a8619be3f8e"
+    },
+    {
+      "source": "/home/tangpanyu/reps/FlashKDA/pr.md",
+      "destination": "docs/archive/benchmark-session-notes.md",
+      "sha256": "46243baf4016c33985ad6f8cb6c2ed73d7602cd2c7690d26a6ef86fbcc18bfc9",
+      "bytes": 7021,
+      "action": "merged_or_annotated",
+      "destination_sha256": "38c2739c694275c8f5d2de0cffda03d3ea7887c6ca2f5d521457b55f2d34b8d6"
+    },
+    {
+      "source": "/home/tangpanyu/reps/cutlass-cute-sample/KDA Kernel 简化版.md",
+      "destination": "docs/KDA Kernel 简化版.md",
+      "sha256": "9a3b74695117b2e89ac81c822d21c72f74f64167b8c40f6a9b0f8e2cce6cecc8",
+      "bytes": 26808,
+      "action": "deduplicated",
+      "destination_sha256": "9a3b74695117b2e89ac81c822d21c72f74f64167b8c40f6a9b0f8e2cce6cecc8"
+    },
+    {
+      "source": "/home/tangpanyu/reps/flash-linear-attention/fla/ops/kda/docs/KDA Kernel 简化版.md",
+      "destination": "docs/KDA Kernel 简化版.md",
+      "sha256": "9a3b74695117b2e89ac81c822d21c72f74f64167b8c40f6a9b0f8e2cce6cecc8",
+      "bytes": 26808,
+      "action": "deduplicated",
+      "destination_sha256": "9a3b74695117b2e89ac81c822d21c72f74f64167b8c40f6a9b0f8e2cce6cecc8"
+    },
+    {
+      "source": "/home/tangpanyu/reps/papers/dnn/docs/KDA Kernel 简化版.md",
+      "destination": "artifacts/import-originals/cuLA/KDA Kernel 简化版.md",
+      "sha256": "e8eeefb3cdbf0c1389d4cd9e6b2ccf733d9a5491bf6f7dbd21872ca170070254",
+      "bytes": 15821,
+      "action": "deduplicated",
+      "destination_sha256": "e8eeefb3cdbf0c1389d4cd9e6b2ccf733d9a5491bf6f7dbd21872ca170070254"
+    }
+  ],
+  "excluded": [
+    "Git internals of legacy repo (preserved as bundle and patch)",
+    "build/",
+    ".cache/",
+    "__pycache__/",
+    ".pytest_cache/",
+    "*.egg-info/"
+  ],
+  "shared_directories": [
+    "cutlass",
+    "docs",
+    "ncu-reports"
+  ]
+}

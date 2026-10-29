@@ -1,0 +1,16 @@
+ M README.md
+ M csrc/flash_kda.cpp
+ M csrc/fwd.h
+ M csrc/smxx/fwd_kernel2_1.cuh
+ M csrc/smxx/fwd_launch.cu
+ M csrc/smxx/utils.cuh
+ M docs/ncu-kernel-profiling-guide.md
+ M flash_kda/__init__.py
+ M tests/bench_vsplit.py
+?? 01_dense_gemm.py
+?? csrc/smxx/tma_multicast_compat.cuh
+?? docs/k2-vsplit-cluster-multicast.md
+?? modal_flashkda.py
+?? ncu-reports/
+?? pr.md
+?? tests/test_vsplit_cluster.py

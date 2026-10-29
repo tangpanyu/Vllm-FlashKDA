@@ -2,6 +2,27 @@
 
 FlashKDA: Flash Kimi Delta Attention — high-performance KDA kernels built on CUTLASS
 
+## 本地调优工作区
+
+vLLM FlashKDA 的调优资料已集中到本仓库。入口见 [文档导航](docs/README.md) 和 [迁移、打包说明](docs/workspace-portability.md)。旧版源码、微基准和 Modal 脚本在 [experiments/flashkda-v1](experiments/README.md)，全部本地 NCU 报告见 [报告索引](ncu-reports/INDEX.md)。
+
+在另一台机器获取调优代码、文档、实验快照和 CUTLASS：
+
+```bash
+git clone --recurse-submodules --branch experiment/vsplit-final \
+  https://github.com/tangpanyu/Vllm-FlashKDA.git
+```
+
+源码、文档、实验快照和旧版 Git 历史备份均纳入版本控制。原始 NCU 和编译产物不进入 Git，需要时通过 ZIP 带走。
+
+打包整个工作区（包含 Git 忽略的 NCU 和二进制）：
+
+```bash
+bash scripts/package_workspace.sh
+```
+
+ZIP 和 SHA256 校验文件默认写到仓库的上一级目录。不要用 `git archive` 代替：它不会带走未提交文件和被忽略的报告。
+
 ## News
 
 - **2026-04-22** — Deep-Dive Blog: the design decisions behind FlashKDA v1, read it [here](docs/20260420-flashkda-v1-deep-dive.md).

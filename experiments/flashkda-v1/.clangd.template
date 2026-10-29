@@ -1,0 +1,21 @@
+CompileFlags:
+  Add:
+    - -nocudainc
+    - -nogpuinc
+    - --cuda-host-only
+    - -ferror-limit=0
+    - -D__CUDACC__=1
+    - -D__GRCO_CLANG_COMPILER__=0
+    - -D_USE_MATH_DEFINES
+    - -Wno-implicit-int-float-conversion
+    - -I__REPO_ROOT__/cutlass/include/
+    - -I__REPO_ROOT__/cutlass/tools/util/include/
+    - -I__REPO_ROOT__/cutlass/examples/common/
+    - -I__REPO_ROOT__/csrc/
+    - -I/usr/local/cuda/targets/x86_64-linux/include/
+
+Diagnostics:
+  Suppress:
+    - cuda_ovl_target
+    - constexpr_redecl_mismatch
+    - fatal_too_many_errors

@@ -8,3 +8,25 @@ build/**
 **/__pycache__/**
 .clangd
 plot*.png
+
+# Local build/editor state.
+.pytest_cache/
+compile_commands.json
+*.pyc
+*.pyo
+
+# Profiling data stays on disk and is included by scripts/package_workspace.sh.
+*.ncu-rep.*
+*.qdrep
+/ncu-reports/**
+!/ncu-reports/**/
+!/ncu-reports/**/*.md
+!/ncu-reports/MANIFEST.sha256
+!/ncu-reports/REPORTS.json
+
+# Keep original notes and the small legacy Git backup available after cloning.
+# Other local artifacts and build products remain ignored.
+/artifacts/*
+!/artifacts/git/
+!/artifacts/import-originals/
+/dist/

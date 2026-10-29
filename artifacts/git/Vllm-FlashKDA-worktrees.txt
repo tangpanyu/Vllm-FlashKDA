@@ -1,0 +1,19 @@
+worktree /home/tangpanyu/reps/Vllm-FlashKDA
+HEAD 0c8a2d0550e5b847af0041f8533cd00318721749
+branch refs/heads/experiment/vsplit-final
+
+worktree /tmp/flashkda-c5-baseline-0c8a2d0
+HEAD 0c8a2d0550e5b847af0041f8533cd00318721749
+detached
+prunable gitdir 文件指向一个不存在的位置
+
+worktree /tmp/flashkda-c6-ablation
+HEAD 0c8a2d0550e5b847af0041f8533cd00318721749
+detached
+prunable gitdir 文件指向一个不存在的位置
+
+worktree /tmp/flashkda-threshold.UWRo5G
+HEAD 0c8a2d0550e5b847af0041f8533cd00318721749
+detached
+prunable gitdir 文件指向一个不存在的位置
+

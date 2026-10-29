@@ -9,7 +9,7 @@ cd "${REPO_ROOT}"
 
 PYTHON_BIN="${PYTHON_BIN:-$(python -c 'import sys; print(sys.executable)')}"
 NCU_BIN="${NCU_BIN:-$(type -P ncu)}"
-REPORT="${REPORT:-h100_b16_t8192_h96_split5_noncluster}"
+REPORT="${REPORT:-ncu-reports/vllm-flashkda/h100_b16_t8192_h96_split5_noncluster}"
 REPORT="${REPORT%.ncu-rep}"
 
 if [[ -z "${NCU_BIN}" ]]; then
@@ -17,6 +17,7 @@ if [[ -z "${NCU_BIN}" ]]; then
     exit 1
 fi
 
+mkdir -p -- "$(dirname -- "${REPORT}")"
 echo "Python: ${PYTHON_BIN}"
 echo "NCU:    ${NCU_BIN}"
 echo "Report: ${REPORT}.ncu-rep"

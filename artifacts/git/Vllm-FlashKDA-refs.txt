@@ -1,0 +1,17 @@
+78b110aa3daf20310ff8e8998e0191a7cec8803d refs/codex/turn-diffs/captures/1793240180897/e142a417-a6a3-4cf1-afa6-201a62150c8e/base
+b5d11010ff01c1d4a683c0dde42e76cbeaa8107f refs/heads/dev
+0c8a2d0550e5b847af0041f8533cd00318721749 refs/heads/experiment/vsplit-final
+aad766987909058fdd833fcfcce42d5225047eb5 refs/heads/experiment/vsplit-final-warp6
+3fcf41b63543db105c3a386cfe42236fac882836 refs/heads/feature/k2-vsplit
+1ce47ea3bb22c84eb9cc665028399cf35e8ffb0b refs/heads/master
+1ce47ea3bb22c84eb9cc665028399cf35e8ffb0b refs/remotes/origin/HEAD
+b5d11010ff01c1d4a683c0dde42e76cbeaa8107f refs/remotes/origin/dev
+0c8a2d0550e5b847af0041f8533cd00318721749 refs/remotes/origin/experiment/vsplit-final
+aad766987909058fdd833fcfcce42d5225047eb5 refs/remotes/origin/experiment/vsplit-final-warp6
+3fcf41b63543db105c3a386cfe42236fac882836 refs/remotes/origin/feature/k2-vsplit
+1ce47ea3bb22c84eb9cc665028399cf35e8ffb0b refs/remotes/origin/master
+1ce47ea3bb22c84eb9cc665028399cf35e8ffb0b refs/remotes/upstream/HEAD
+d044430b637dc72e0eb0ea892b1f5d8355c49acb refs/remotes/upstream/agent/export-intermediate-recurrent-checkpoints
+b5d11010ff01c1d4a683c0dde42e76cbeaa8107f refs/remotes/upstream/dev
+1ce47ea3bb22c84eb9cc665028399cf35e8ffb0b refs/remotes/upstream/master
+66434df6b6760f58312a9b82d77e69068858ea39 refs/remotes/upstream/thien-codex/state-store-refactor

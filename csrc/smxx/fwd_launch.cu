@@ -40,7 +40,7 @@ void launch_fwd(
     using BF16 = cutlass::bfloat16_t;
     constexpr int kInputStages = 3;
     constexpr int kVSplitInputStages = 3;
-    constexpr int kOutputStages = 2;
+    constexpr int kOutputStages = 3;
     constexpr int CHUNK = 16;
     constexpr int VD = 64;
 

@@ -1,0 +1,145 @@
+{
+  "date": "2026-10-29",
+  "count": 23,
+  "total_bytes": 1118532472,
+  "reports": [
+    {
+      "path": "ncu-reports/flashkda/h100__original-vsplit__b8-t2048-h96__full.ncu-rep",
+      "bytes": 59136442,
+      "sha256": "df5a0fdace65529904d9e48c6332113d628f8748d36c8fa65947193d552aa60a",
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/flashkda/h100__original-vsplit__b8-t2048-h96__full.ncu-rep"
+    },
+    {
+      "path": "ncu-reports/flashkda/rtx5060ti__original-vsplit__b1-t2048-h32__full.ncu-rep",
+      "bytes": 16067798,
+      "sha256": "992dad046aa2fbbd52f8f7baaad9fc3e2aedc58390aeaecd779505435b3f0536",
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/flashkda/rtx5060ti__original-vsplit__b1-t2048-h32__full.ncu-rep"
+    },
+    {
+      "path": "ncu-reports/flashkda/rtx5060ti__vsplit__b1-t2048-h32__full.ncu-rep",
+      "bytes": 19134904,
+      "sha256": "e495c20f5cf3a73b14c2d0ab6b42a8c2f258daa0ee2b9c1d6614bcf1541092a4",
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/flashkda/rtx5060ti__vsplit__b1-t2048-h32__full.ncu-rep"
+    },
+    {
+      "path": "ncu-reports/flashkda/rtx5060ti__vsplit__b1-t2048-h32__launch-occupancy-sol.ncu-rep",
+      "bytes": 12184224,
+      "sha256": "453269490f474c774549591287d29cfee2bf245f67c9857129499e2249e63206",
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/flashkda/rtx5060ti__vsplit__b1-t2048-h32__launch-occupancy-sol.ncu-rep"
+    },
+    {
+      "path": "ncu-reports/flashkda/rtx5060ti__vsplit__b1-t2048-h32__launchstats.ncu-rep",
+      "bytes": 12135212,
+      "sha256": "1947d7b6f03201a0f51e52e8f4043e0cfe30dc5fcd7ced374ada110ee5dd387f",
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/flashkda/rtx5060ti__vsplit__b1-t2048-h32__launchstats.ncu-rep"
+    },
+    {
+      "path": "ncu-reports/microbench/rtx5060ti__scalar-bf16__grid1-block32__full.ncu-rep",
+      "bytes": 859492,
+      "sha256": "15e67b876b36993cff4c176500a008e3eea5dd885615feb367ba6521b619d48d",
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/microbench/rtx5060ti__scalar-bf16__grid1-block32__full.ncu-rep"
+    },
+    {
+      "path": "ncu-reports/microbench/rtx5060ti__shared-32way-conflict__grid1024-block32__full.ncu-rep",
+      "bytes": 1504901,
+      "sha256": "66b734e317c12bd034a8120e5bdec0a2faef1c8ff2770fde4c1f7b352b9fdd94",
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/microbench/rtx5060ti__shared-32way-conflict__grid1024-block32__full.ncu-rep"
+    },
+    {
+      "path": "ncu-reports/microbench/rtx5060ti__shared-no-conflict__grid1024-block32__full.ncu-rep",
+      "bytes": 1169936,
+      "sha256": "2ed3c28cfc3df53e0497fd19d21e83770c5035b596635c02f1368568779b59e4",
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/microbench/rtx5060ti__shared-no-conflict__grid1024-block32__full.ncu-rep"
+    },
+    {
+      "path": "ncu-reports/vllm-flashkda/h100-delayed-release-n16-t8192-h96-full.ncu-rep",
+      "bytes": 73225534,
+      "sha256": "56cff169a0d844c8b341324edc73c4b9a2c3310edf5bb74fe7b6d5bb81026c99",
+      "source": "/home/tangpanyu/reps/Vllm-FlashKDA/ncu-reports/vllm-flashkda/h100-delayed-release-n16-t8192-h96-full.ncu-rep"
+    },
+    {
+      "path": "ncu-reports/vllm-flashkda/h100__baseline-current-toolchain__n16-t8192-h96__cache-none-full.ncu-rep",
+      "bytes": 77089566,
+      "sha256": "caf91ea0162561a2f3917119b0e2171e042f0d705510d81dcf3dd9e13b925278",
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/vllm-flashkda/h100__baseline-current-toolchain__n16-t8192-h96__cache-none-full.ncu-rep"
+    },
+    {
+      "path": "ncu-reports/vllm-flashkda/h100__original-warp6split-warp5cluster__n1-t8192-h96__pre-perwarp-full.ncu-rep",
+      "bytes": 59554491,
+      "sha256": "0dcd0f8f41c27c78053323d8f0127bc9051df2044b8401fa0ba27e3dba740678",
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/vllm-flashkda/h100__original-warp6split-warp5cluster__n1-t8192-h96__pre-perwarp-full.ncu-rep"
+    },
+    {
+      "path": "ncu-reports/vllm-flashkda/h100__original-warp6split-warp5cluster__n4-t2048-h12__pre-perwarp-full.ncu-rep",
+      "bytes": 37478956,
+      "sha256": "86721698edd962f48a42adc0d259d183f47f447374b053a2d3fbce4302415466",
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/vllm-flashkda/h100__original-warp6split-warp5cluster__n4-t2048-h12__pre-perwarp-full.ncu-rep"
+    },
+    {
+      "path": "ncu-reports/vllm-flashkda/h100__original__n16-t8192-h96__cache-all-full.ncu-rep",
+      "bytes": 73999232,
+      "sha256": "e41b6f24374569bbaeb731adc1c83ecfc5c239212795c83c5de68a37fb3d0615",
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/vllm-flashkda/h100__original__n16-t8192-h96__cache-all-full.ncu-rep"
+    },
+    {
+      "path": "ncu-reports/vllm-flashkda/h100__packed-tma__n16-t8192-h96__cache-none-full.ncu-rep",
+      "bytes": 74938723,
+      "sha256": "598cad32afb9a9ea41ebcccb6ccb831c897b3ae958cadd5d2e35465f60a81bac",
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/vllm-flashkda/h100__packed-tma__n16-t8192-h96__cache-none-full.ncu-rep"
+    },
+    {
+      "path": "ncu-reports/vllm-flashkda/h100__warp5cluster-final-0c8a2d0__n16-t8192-h96__cache-none-full.ncu-rep",
+      "bytes": 76498744,
+      "sha256": "9005b80487416faf3c6c3b72d5babb567218ff21af02ba9b5295c2e51c71bd0b",
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/vllm-flashkda/h100__warp5cluster-final-0c8a2d0__n16-t8192-h96__cache-none-full.ncu-rep"
+    },
+    {
+      "path": "ncu-reports/vllm-flashkda/h100__warp5cluster-final-0c8a2d0__n16-t8192-h96__launchstats.ncu-rep",
+      "bytes": 18380334,
+      "sha256": "0d6ea55091ad72b632e8b1d3dc518e6a13f5daa5ce18979e794d5f2da79769d9",
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/vllm-flashkda/h100__warp5cluster-final-0c8a2d0__n16-t8192-h96__launchstats.ncu-rep"
+    },
+    {
+      "path": "ncu-reports/vllm-flashkda/h100__warp5cluster__n16-t8192-h96__pre-perwarp-cache-all-full.ncu-rep",
+      "bytes": 76118115,
+      "sha256": "2357290bb936c8f0e29ebd6108d7d51342e2f91a0b38833a2c1acd6b2c48d2c8",
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/vllm-flashkda/h100__warp5cluster__n16-t8192-h96__pre-perwarp-cache-all-full.ncu-rep"
+    },
+    {
+      "path": "ncu-reports/vllm-flashkda/h100__warp5split-final-0c8a2d0__n16-t8192-h96__cache-none-full.ncu-rep",
+      "bytes": 87807483,
+      "sha256": "74114150669ba9eab2b8ce43b25a07811d5f801f645fe5566c766b5b1db1744b",
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/vllm-flashkda/h100__warp5split-final-0c8a2d0__n16-t8192-h96__cache-none-full.ncu-rep"
+    },
+    {
+      "path": "ncu-reports/vllm-flashkda/h100__warp5split__n16-t8192-h96__cache-none-full.ncu-rep",
+      "bytes": 82211074,
+      "sha256": "921a3ee713c418ec6b05ee452d4d3d9d9be0343e9cdc52b139f2bf482b78c9f7",
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/vllm-flashkda/h100__warp5split__n16-t8192-h96__cache-none-full.ncu-rep"
+    },
+    {
+      "path": "ncu-reports/vllm-flashkda/h100__warp6-cluster__n16-t8192-h96__cache-none-full.ncu-rep",
+      "bytes": 82004940,
+      "sha256": "2f4fce44f260f8c145dc28dece8258a25053176fd88b457541d470a070416a55",
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/vllm-flashkda/h100__warp6-cluster__n16-t8192-h96__cache-none-full.ncu-rep"
+    },
+    {
+      "path": "ncu-reports/vllm-flashkda/h100__warp6-original-split-cluster__n1-t8192-h96__full.ncu-rep",
+      "bytes": 59325783,
+      "sha256": "b5c0d1ad2f0658f7cae765f14c64ba2ecd720cd739fecbfe5631fda111c67143",
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/vllm-flashkda/h100__warp6-original-split-cluster__n1-t8192-h96__full.ncu-rep"
+    },
+    {
+      "path": "ncu-reports/vllm-flashkda/h100__warp6-original-split-cluster__n4-t2048-h12__full.ncu-rep",
+      "bytes": 37315572,
+      "sha256": "046bce4ca565738c26e260d8fa7fcc63548e94cc94d69001401cad26cf6b4171",
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/vllm-flashkda/h100__warp6-original-split-cluster__n4-t2048-h12__full.ncu-rep"
+    },
+    {
+      "path": "ncu-reports/vllm-flashkda/h100__warp6split__n16-t8192-h96__cache-none-full.ncu-rep",
+      "bytes": 80391016,
+      "sha256": "b66100cb6535bdaba76530e3db6213685afb5f7b4424e9cc5ba5c97f7f22c09f",
+      "source": "/home/tangpanyu/reps/FlashKDA/ncu-reports/vllm-flashkda/h100__warp6split__n16-t8192-h96__cache-none-full.ncu-rep"
+    }
+  ]
+}

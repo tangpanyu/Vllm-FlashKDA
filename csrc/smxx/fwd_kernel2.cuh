@@ -520,6 +520,7 @@ void _flash_kda_fwd_recurrence(
                 tma_store_out.get_tma_tensor(make_shape(H, T_total, D));
             auto cta_tma_store = tma_store_out.get_slice(Int<0>{});
             StorePipelineState out_read;
+            StorePipelineState out_release;
 
             for (int t = 0; t < t_tiles; ++t) {
                 store_pipeline.consumer_wait(out_read);
@@ -562,10 +563,19 @@ void _flash_kda_fwd_recurrence(
                     tma_store_arrive();
                 }
 
-                tma_store_wait<0>();
-                store_pipeline.consumer_release(out_read);
+                // Keep one store in flight.  Release the previous output
+                // stage only after the wait-group has retired it, so MMA
+                // cannot overwrite shared memory still read by TMA.
+                if (t > 0) {
+                    tma_store_wait<2>();
+                    store_pipeline.consumer_release(out_release);
+                    ++out_release;
+                }
                 ++out_read;
             }
+
+            // Drain the last in-flight store before leaving the output ring.
+            tma_store_wait<0>();
 
             // Unlike the dedicated load warp, the fused IO warp must drain
             // output first: producer_tail can wait for an input stage whose

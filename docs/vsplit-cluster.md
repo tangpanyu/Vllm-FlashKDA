@@ -2,7 +2,7 @@
 
 本文说明实验性的 K2 V-split 和 CTA cluster 路径，包括它们与 upstream/dev、PR #4 的关系，数据与同步如何组织，以及如何在 B300 上验证是否值得启用。
 
-围绕 `VD=64` resident state 转置、寄存器生命周期和 spill 所做但最终未采用的优化，记录在 [K2 V-split state 转置与寄存器压力实验](vsplit-state-transpose-experiments.md) 中。
+围绕 `VD=64` resident state 转置、寄存器生命周期和 spill 所做但最终未采用的优化，已合并到 [K2 V-split、Cluster 与寄存器实验复盘](k2-vsplit-experiment-retrospective.md) 中。
 
 ## 设计基线
 

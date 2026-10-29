@@ -1,0 +1,162 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="820" viewBox="0 0 1800 820" role="img" aria-labelledby="title desc">
+  <title id="title">K2 kernel overlapped execution flow</title>
+  <desc id="desc">A left-to-right schedule showing which K2 loads, computations, and stores overlap in each time window.</desc>
+
+  <defs>
+    <linearGradient id="header" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#172554"/>
+      <stop offset="1" stop-color="#312e81"/>
+    </linearGradient>
+    <marker id="arrow" markerWidth="9" markerHeight="9" refX="7.5" refY="4.5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#64748b"/>
+    </marker>
+    <marker id="arrowDark" markerWidth="9" markerHeight="9" refX="7.5" refY="4.5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#334155"/>
+    </marker>
+    <style>
+      text {
+        fill: #0f172a;
+        font-family: Inter, "Noto Sans CJK SC", "Microsoft YaHei", "PingFang SC", sans-serif;
+      }
+      .title { fill:#fff; font-size:34px; font-weight:760; }
+      .subtitle { fill:#cbd5e1; font-size:17px; }
+      .laneTitle { fill:#334155; font-size:20px; font-weight:760; }
+      .laneSub { fill:#64748b; font-size:14px; }
+      .windowTitle { fill:#92400e; font-size:14px; font-weight:760; }
+      .boxTitle { fill:#fff; font-size:17px; font-weight:760; }
+      .boxSub { fill:#dbeafe; font-size:14px; }
+      .formula { fill:#fff; font-family:"JetBrains Mono", Consolas, monospace; font-size:17px; font-weight:650; }
+      .note { fill:#64748b; font-size:14px; }
+      .loadBox { fill:#0284c7; stroke:#0369a1; stroke-width:1.4; rx:10; ry:10; }
+      .computeBox { fill:#6d28d9; stroke:#5b21b6; stroke-width:1.4; rx:12; ry:12; }
+      .storeBox { fill:#059669; stroke:#047857; stroke-width:1.4; rx:10; ry:10; }
+      .stateBox { fill:#0f766e; stroke:#115e59; stroke-width:1.4; rx:10; ry:10; }
+      .dep { fill:none; stroke:#64748b; stroke-width:2; marker-end:url(#arrow); }
+      .flow { fill:none; stroke:#334155; stroke-width:2.3; marker-end:url(#arrowDark); }
+    </style>
+  </defs>
+
+  <rect width="1800" height="820" fill="#f8fafc"/>
+  <rect width="1800" height="104" fill="url(#header)"/>
+  <text x="60" y="47" class="title">K2 Kernel：一眼看懂加载、计算与写回重叠</text>
+  <text x="60" y="78" class="subtitle">从左向右推进；同一竖列中的 LOAD / MMA / STORE 同时执行，而不是整张图串行执行。</text>
+
+  <!-- Timeline -->
+  <line x1="244" y1="136" x2="1725" y2="136" stroke="#94a3b8" stroke-width="1.4" marker-end="url(#arrow)"/>
+  <text x="248" y="126" class="note">时间推进</text>
+
+  <!-- Overlap windows -->
+  <rect x="214" y="156" width="255" height="558" rx="15" fill="#f1f5f9"/>
+  <rect x="479" y="156" width="225" height="558" rx="15" fill="#eff6ff"/>
+  <rect x="714" y="156" width="225" height="558" rx="15" fill="#f5f3ff"/>
+  <rect x="949" y="156" width="270" height="558" rx="15" fill="#fffbeb"/>
+  <rect x="1229" y="156" width="225" height="558" rx="15" fill="#f5f3ff"/>
+  <rect x="1464" y="156" width="270" height="558" rx="15" fill="#ecfdf5"/>
+
+  <text x="341" y="181" text-anchor="middle" class="windowTitle">准备 state</text>
+  <text x="591" y="181" text-anchor="middle" class="windowTitle">算 U₀ ∥ 加载 Qγ</text>
+  <text x="826" y="181" text-anchor="middle" class="windowTitle">算 O₀ ∥ 加载 V/A/β/G</text>
+  <text x="1084" y="181" text-anchor="middle" class="windowTitle">算 D/Sdecay ∥ 加载 Mqk</text>
+  <text x="1341" y="181" text-anchor="middle" class="windowTitle">算 O ∥ 加载 Kright</text>
+  <text x="1599" y="181" text-anchor="middle" class="windowTitle">算 Snew ∥ 写 O ∥ 预取下一块</text>
+
+  <!-- Lane labels -->
+  <text x="55" y="256" class="laneTitle">LOAD warp</text>
+  <text x="55" y="279" class="laneSub">global → shared</text>
+  <text x="55" y="417" class="laneTitle">MMA warps</text>
+  <text x="55" y="440" class="laneSub">核心计算</text>
+  <text x="55" y="625" class="laneTitle">STORE warp</text>
+  <text x="55" y="648" class="laneSub">shared → global</text>
+
+  <!-- Horizontal lane guides -->
+  <line x1="190" y1="315" x2="1744" y2="315" stroke="#cbd5e1" stroke-dasharray="6 7"/>
+  <line x1="190" y1="565" x2="1744" y2="565" stroke="#cbd5e1" stroke-dasharray="6 7"/>
+
+  <!-- LOAD row -->
+  <rect x="235" y="215" width="102" height="67" class="loadBox"/>
+  <text x="286" y="242" text-anchor="middle" class="boxTitle">① 加载</text>
+  <text x="286" y="268" text-anchor="middle" class="formula">Kγ</text>
+
+  <rect x="349" y="215" width="99" height="67" class="stateBox"/>
+  <text x="399" y="242" text-anchor="middle" class="boxTitle">② 加载</text>
+  <text x="399" y="268" text-anchor="middle" class="formula">Sold</text>
+
+  <rect x="508" y="215" width="166" height="67" class="loadBox"/>
+  <text x="591" y="242" text-anchor="middle" class="boxTitle">③ 马上加载</text>
+  <text x="591" y="268" text-anchor="middle" class="formula">Qγ</text>
+
+  <rect x="739" y="207" width="175" height="83" class="loadBox"/>
+  <text x="826" y="235" text-anchor="middle" class="boxTitle">④ 马上加载</text>
+  <text x="826" y="262" text-anchor="middle" class="formula">V, A, β, G</text>
+  <text x="826" y="282" text-anchor="middle" class="boxSub">A = INV</text>
+
+  <rect x="990" y="215" width="188" height="67" class="loadBox"/>
+  <text x="1084" y="242" text-anchor="middle" class="boxTitle">⑤ 马上加载</text>
+  <text x="1084" y="268" text-anchor="middle" class="formula">Mqk</text>
+
+  <rect x="1254" y="215" width="174" height="67" class="loadBox"/>
+  <text x="1341" y="242" text-anchor="middle" class="boxTitle">⑥ 马上加载</text>
+  <text x="1341" y="268" text-anchor="middle" class="formula">Kright</text>
+
+  <rect x="1495" y="207" width="208" height="83" class="loadBox"/>
+  <text x="1599" y="235" text-anchor="middle" class="boxTitle">预取 chunk c+1</text>
+  <text x="1599" y="262" text-anchor="middle" class="boxSub">下一块全部输入</text>
+  <text x="1599" y="282" text-anchor="middle" class="boxSub">无需等待 Snew[c]</text>
+
+  <!-- COMPUTE row -->
+  <rect x="493" y="355" width="196" height="105" class="computeBox"/>
+  <text x="591" y="386" text-anchor="middle" class="boxTitle">Kγ / S 到达马上算 U₀</text>
+  <text x="591" y="427" text-anchor="middle" class="formula">U₀ = Kγ · Sold</text>
+  <text x="591" y="451" text-anchor="middle" class="boxSub">同时 LOAD warp 在读 Qγ</text>
+
+  <rect x="729" y="355" width="194" height="105" class="computeBox"/>
+  <text x="826" y="386" text-anchor="middle" class="boxTitle">Qγ 到达马上算 O₀</text>
+  <text x="826" y="427" text-anchor="middle" class="formula">O₀ = Qγ · Sold</text>
+  <text x="826" y="451" text-anchor="middle" class="boxSub">同时加载 V / A / β / G</text>
+
+  <rect x="964" y="340" width="240" height="142" class="computeBox"/>
+  <text x="1084" y="371" text-anchor="middle" class="boxTitle">两条独立分支并行</text>
+  <text x="1084" y="409" text-anchor="middle" class="formula">D = A·Diag(σβ)(V−U₀)</text>
+  <line x1="984" y1="427" x2="1184" y2="427" stroke="#a78bfa"/>
+  <text x="1084" y="458" text-anchor="middle" class="formula">Sdecay = Diag(G)Sold</text>
+  <text x="1084" y="476" text-anchor="middle" class="boxSub">同时加载 Mqk</text>
+
+  <rect x="1244" y="355" width="194" height="105" class="computeBox"/>
+  <text x="1341" y="386" text-anchor="middle" class="boxTitle">Mqk 到达马上算 O</text>
+  <text x="1341" y="427" text-anchor="middle" class="formula">O = O₀ + Mqk·D</text>
+  <text x="1341" y="451" text-anchor="middle" class="boxSub">同时加载 Kright</text>
+
+  <rect x="1480" y="340" width="238" height="142" class="computeBox"/>
+  <text x="1599" y="371" text-anchor="middle" class="boxTitle">Kright 到达马上算 Snew</text>
+  <text x="1599" y="409" text-anchor="middle" class="formula">Snew = Sdecay +</text>
+  <text x="1599" y="438" text-anchor="middle" class="formula">Krightᵀ·D</text>
+  <text x="1599" y="468" text-anchor="middle" class="boxSub">同时写 O、预取下一块</text>
+
+  <!-- STORE row -->
+  <rect x="1486" y="590" width="226" height="70" class="storeBox"/>
+  <text x="1599" y="619" text-anchor="middle" class="boxTitle">O 完成立即写回</text>
+  <text x="1599" y="646" text-anchor="middle" class="formula">store O[c]</text>
+
+  <!-- Short data-ready arrows from LOAD to COMPUTE -->
+  <path d="M286 282 V304 H535 V355" class="dep"/>
+  <path d="M399 282 V315 H560 V355" class="dep"/>
+  <path d="M591 282 V320 H826 V355" class="dep"/>
+  <path d="M826 290 V310 H1084 V340" class="dep"/>
+  <path d="M1084 282 V310 H1341 V355" class="dep"/>
+  <path d="M1341 282 V310 H1599 V340" class="dep"/>
+
+  <!-- Compute dependency flow -->
+  <path d="M689 408 H713" class="flow"/>
+  <path d="M923 408 H948" class="flow"/>
+  <path d="M1204 408 H1228" class="flow"/>
+  <path d="M1438 408 H1464" class="flow"/>
+  <path d="M1341 460 V528 H1599 V590" class="dep"/>
+
+  <!-- Cross-chunk state -->
+  <rect x="480" y="727" width="1050" height="54" rx="12" fill="#ede9fe" stroke="#8b5cf6" stroke-width="1.4"/>
+  <text x="1005" y="760" text-anchor="middle" style="fill:#4c1d95;font-size:17px;font-weight:760">
+    唯一跨 chunk 串行边：Snew[c] → Sold[c+1]；但 chunk c+1 的输入加载可以提前完成
+  </text>
+
+  <text x="54" y="808" class="note">读法：先看中间紫色计算链，再向上看同一时间窗口正在加载什么，最后看绿色写回是否与计算重叠。</text>
+</svg>
